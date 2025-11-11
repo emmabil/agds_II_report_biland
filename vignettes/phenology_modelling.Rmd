@@ -1,5 +1,19 @@
 ---
 title: "phenology_modelling"
+author: "Emma Biland"
 output: html_document
 ---
 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list=ls())
+```
+
+```{r library, message=FALSE, warning=FALSE}
+# Libraries
+library(phenocamr);library(geodata);library(terra);library(dplyr);library(here);library(ggplot2);library(patchwork);library(GenSA);library(BayesianTools);library(daymetr);library(raster);library(MODISTools);library(leaflet);library(tidyterra)
+```
+
+<br>
+
+### **Introduction**
