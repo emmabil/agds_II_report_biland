@@ -17,3 +17,34 @@ library(phenocamr);library(geodata);library(terra);library(dplyr);library(here);
 <br>
 
 ### **Introduction**
+ADD INTRODUCTION!!!!!!!!!!!!!!!!
+
+```{r data_harvard,  message=FALSE}
+# Loading and processing data from harvard
+phenocamr::download_phenocam(
+  site = "harvard$",
+  veg_type = "DB",
+  roi_id = "1000",
+  daymet = TRUE,
+  phenophase = TRUE,
+  trim = 2022,
+  out_dir = tempdir())
+
+harvard_phenocam_data <- readr::read_csv(
+  file.path(tempdir(), "harvard_DB_1000_3day.csv"), 
+  comment = "#")
+
+harvard_phenology <- readr::read_csv(
+  file.path(
+    tempdir(),
+    "harvard_DB_1000_3day_transition_dates.csv"
+    ),
+  comment = "#"
+) |>
+  dplyr::filter(
+    direction == "rising",
+    gcc_value == "gcc_90"
+  )
+```
+
+``` 
