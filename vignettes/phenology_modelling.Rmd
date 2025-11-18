@@ -11,13 +11,19 @@ rm(list=ls())
 
 ```{r library, message=FALSE, warning=FALSE}
 # Libraries
-library(phenocamr);library(geodata);library(terra);library(dplyr);library(here);library(ggplot2);library(patchwork);library(GenSA);library(BayesianTools);library(daymetr);library(raster);library(MODISTools);library(leaflet);library(tidyterra)
+library(phenocamr);library(geodata);library(terra);library(dplyr);library(here);library(ggplot2);library(patchwork);library(GenSA);library(BayesianTools);library(daymetr);library(raster);library(MODISTools);library(leaflet);library(tidyterra);library(patchwork)
 ```
 
 <br>
 
 ### **Introduction**
-ADD INTRODUCTION!!!!!!!!!!!!!!!!
+Phenology responds closely to seasonal and interannual climate variability. Under ongoing climate change, shifts in biological life cycles are increasingly observed, with implications for ecosystem stability and biodiversity. Assessing these changes requires robust approaches to quantify temperature-driven seasonal development.
+
+This exercise focuses on modelling growing degree days (GDD), a common measure of spring temperature accumulation until leaf-out. The workflow follows the methods presented in ["Handful of Pixels" chapter 6](https://geco-bern.github.io/handfull_of_pixels/phenology_modelling.html). PhenoCam observations were used as the primary data source, accessed through the [{phenocamr}](https://bluegreen-labs.github.io/phenocamr/) [R package](https://bluegreen-labs.github.io/phenocamr/), using the Harvard site in the north-eastern United States as an example. Data acquisition and preparation follow the procedures described in Section 6.
+
+The GDD model and its optimisation procedure are also based on Section 6. Model calibration yielded estimates for two key parameters: a temperature threshold of  2.81 °C and an accumulation period of 228.28 days. These parameters were then used to predict growing degree days for the period MISSING DATAAAAA!!!!!!!!!!!!!!!!!!.
+
+#####***Data download and preprocessing (Harvard PhenoCam + DAYMET)***
 
 ```{r data_harvard,  message=FALSE}
 # Loading and processing data from harvard
@@ -38,13 +44,219 @@ harvard_phenology <- readr::read_csv(
   file.path(
     tempdir(),
     "harvard_DB_1000_3day_transition_dates.csv"
-    ),
+  ),
   comment = "#"
 ) |>
   dplyr::filter(
     direction == "rising",
     gcc_value == "gcc_90"
   )
+
+
+
+# return mean daily temperature as well
+# as formal dates (for plotting)
+harvard_temp <- harvard_phenocam_data |>
+  group_by(year) |>
+  dplyr::mutate(
+    tmean = (tmax..deg.c. + tmin..deg.c.)/2
+  ) |> 
+  dplyr::mutate(
+    date = as.Date(date),
+    gdd = cumsum(ifelse(tmean >= 5, tmean - 5, 0))
+  ) |>
+  dplyr::select(
+    date,
+    year,
+    tmean,
+    gdd
+  ) |>
+  ungroup()
+
+# convert the harvard phenology data and only
+# retain required data
+harvard_phenology <- harvard_phenology |>
+  mutate(
+    doy = as.numeric(format(as.Date(transition_25),"%j")),
+    year = as.numeric(format(as.Date(transition_25),"%Y"))
+  ) |>
+  select(
+    year,
+    doy,
+    transition_25,
+    threshold_25
+    )
 ```
 
-``` 
+``` {r algo}
+source("../functions/phenology_algo.R")
+```
+
+#####***Baseline GDD model***
+```{r model_optimisation, message=FALSE}
+# starting model parameters
+par = c(0, 130)
+
+# limits to the parameter space
+lower <- c(-10,0)
+upper <- c(45,500)
+
+# data needs to be provided in a consistent
+# single data file, a nested data structure
+# will therefore accept non standard data formats
+data <- list(
+  drivers = harvard_temp,
+  validation = harvard_phenology
+  )
+
+# optimize the model parameters
+optim_par = GenSA::GenSA(
+ par = par,
+ fn = rmse_gdd,
+ lower = lower,
+ upper = upper,
+ control = list(
+   max.call = 4000
+   ),
+ data = data
+)$par
+
+# run the model for all years
+# to get the phenology predictions
+predictions <- harvard_temp |>
+  group_by(year) |>
+  summarize(
+   prediction = gdd_model(
+    temp = tmean,
+    par = optim_par
+  )  
+  )
+print(predictions)
+```
+
+The modelled day of leaf unfolding (DOY) compared with the observed values is shown below:
+``` {r all_years_model, echo=FALSE, warning=FALSE, message=FALSE, fig.align='center', fig.width=6, fig.height=4}
+# join predicted with observed data
+validation <- left_join(predictions, harvard_phenology)
+
+ggplot(validation) +
+  geom_smooth(
+    aes(
+      doy,
+      prediction
+    ),
+    colour = "grey25",
+    method = "lm"
+  ) +
+  geom_point(
+    aes(
+      doy,
+      prediction
+    )
+  ) +
+  geom_abline(
+    intercept=0, 
+    slope=1, 
+    linetype="dotted"
+    ) +
+  labs(
+    x = "Observed leaf-out date (DOY)",
+    y = "Predicted leaf-out date (DOY)"
+  ) +
+  theme_bw()  +
+  theme(
+    legend.position = "none"
+  )
+```
+
+``` {r validation}
+model_lm <- lm(prediction ~ doy, data = validation)
+summary(model_lm)
+```
+
+A linear regression between predicted and observed leaf-out dates (Fig. XXXX) shows a slope of 0.75 and a non-significant intercept, indicating that the GDD model captures the timing of spring phenology without a strong overall bias. However, the slope is clearly lower than the ideal value of 1, meaning that the model underestimates interannual variability: early years are predicted too late, while late years are predicted too early. The explained variance is moderate (R² = 0.46), and residual errors range between approximately –8 and +5 days, which is consistent with typical performance of simple temperature-based GDD models. Overall, the model reproduces general phenological timing reasonably well but fails to fully capture year-to-year fluctuations.
+
+###***Exercise**
+####***1. Model optimization***
+The growing degree day (GDD) model implemented in Chapter 6 provides a simple and robust approximation of spring phenology. However, such threshold-based formulations have well-known limitations, especially when scaled beyond a single site. Here, three improvements are proposed:
+
+1. **Add a chilling requirement before heat accumulation**  
+   Temperate trees require a minimum winter chilling period to break dormancy.  
+   The current model ignores chilling, which may bias early or warm years.
+
+2. **Use a non-linear temperature response function**  
+   Linear GDD accumulation assumes that all degrees above the threshold contribute equally.  
+   A triangular or double-sigmoid response captures optimum and saturation effects.
+
+3. **Allow spatially variable model parameters**  
+   When the model is applied regionally, parameters derived at Harvard cannot represent different elevations, species compositions, or microclimates.  
+   Calibrating thresholds per pixel or regressing them against environmental gradients improves scalability.
+
+In the following, we implement the first improvement (chilling requirement).
+
+####***2. Implementation of optimization***
+```{r implementation}
+# Data list reused
+
+data_chill <- list(
+drivers    = harvard_temp,
+validation = harvard_phenology
+)
+
+# parameter vector: c(chill_threshold, required_chill, gdd_threshold, gdd_crit)
+
+par0_chill  <- c(5,   100,  0,   200)
+lower_chill <- c(-5,   10, -5,    10)
+upper_chill <- c(10,  300, 15,   600)
+
+optim_par_chill <- GenSA::GenSA(
+par    = par0_chill,
+fn     = rmse_gdd_chill,
+lower  = lower_chill,
+upper  = upper_chill,
+control = list(
+max.call = 5000
+),
+data = data_chill
+)$par
+
+optim_par_chill
+
+# predictions with chilling + GDD model
+
+predictions_chill <- harvard_temp |>
+dplyr::group_by(year) |>
+dplyr::summarise(
+prediction_chill = gdd_chill_model(
+temp = tmean,
+par  = optim_par_chill
+)
+)
+
+validation_chill <- dplyr::left_join(predictions_chill, harvard_phenology)
+
+head(validation_chill)
+
+# Quick comparison scatterplot baseline vs chilling model (facultatif)
+
+p1 <- ggplot(validation) +
+geom_point(aes(doy, prediction)) +
+geom_abline(slope = 1, intercept = 0, linetype = "dotted") +
+labs(x = "Observed DOY", y = "Predicted DOY (GDD)") +
+theme_bw()
+
+p2 <- ggplot(validation_chill) +
+geom_point(aes(doy, prediction_chill)) +
+geom_abline(slope = 1, intercept = 0, linetype = "dotted") +
+labs(x = "Observed DOY", y = "Predicted DOY (chill + GDD)") +
+theme_bw()
+
+p1 + p2 + plot_layout(ncol = 2)
+
+lm_chill <- lm(prediction_chill ~ doy, data = validation_chill)
+summary(lm_chill)
+
+```
+INTERPRETATIONNNNNNNN
+
+####***3. Spatial scaling***
