@@ -11,7 +11,7 @@ rm(list=ls())
 
 ```{r library, message=FALSE, warning=FALSE}
 # Libraries
-library(phenocamr);library(geodata);library(terra);library(dplyr);library(here);library(ggplot2);library(patchwork);library(GenSA);library(BayesianTools);library(daymetr);library(raster);library(MODISTools);library(leaflet);library(tidyterra);library(patchwork)
+library(phenocamr);library(geodata);library(terra);library(dplyr);library(here);library(ggplot2);library(patchwork);library(GenSA);library(BayesianTools);library(daymetr);library(raster);library(MODISTools);library(leaflet);library(tidyterra);library(patchwork);library(keyring);library(appeears);library(sf); library(geosphere)
 ```
 
 <br>
@@ -72,6 +72,22 @@ harvard_temp <- harvard_phenocam_data |>
     gdd
   ) |>
   ungroup()
+
+# Determination of the photoperiod which will be used later
+# Coordinates for Harvard Forest (approx.)
+harvard_lat <- 42.5378
+harvard_lon <- -72.1715
+
+harvard_temp <- harvard_temp |>
+  dplyr::mutate(
+    doy = as.numeric(format(date, "%j")),
+    # geosphere::daylength attend la latitude en radians
+    photoperiod = geosphere::daylength(
+      lat = harvard_lat * pi/180,
+      doy = doy
+    ) / 3600  # conversion secondes -> heures
+  )
+
 
 # convert the harvard phenology data and only
 # retain required data
@@ -174,25 +190,39 @@ model_lm <- lm(prediction ~ doy, data = validation)
 summary(model_lm)
 ```
 
-A linear regression between predicted and observed leaf-out dates (Fig. XXXX) shows a slope of 0.75 and a non-significant intercept, indicating that the GDD model captures the timing of spring phenology without a strong overall bias. However, the slope is clearly lower than the ideal value of 1, meaning that the model underestimates interannual variability: early years are predicted too late, while late years are predicted too early. The explained variance is moderate (R² = 0.46), and residual errors range between approximately –8 and +5 days, which is consistent with typical performance of simple temperature-based GDD models. Overall, the model reproduces general phenological timing reasonably well but fails to fully capture year-to-year fluctuations.
+The simple GDD model provides a reasonable approximation of the observed PhenoCam leaf-out dates, yet several weaknesses remain evident.
+The regression between observed DOY and model predictions yields:
+
+* slope = 0.75, indicating a substantial underestimation of interannual variability;
+
+* intercept = 33.1 (non-significant);
+
+* R² = 0.46, meaning that less than half of the variance is explained;
+
+* RMSE ≈ 4.4 days.
+
+The model tends to predict early years too late and late years too early. This behaviour is consistent with the limitations of linear GDD models, which lack sensitivity to winter conditions and assume uniform temperature effectiveness throughout spring.
 
 ### ***Exercise***
 #### ***1. Model optimization***
-The growing degree day (GDD) model implemented in Chapter 6 provides a simple and robust approximation of spring phenology. However, such threshold-based formulations have well-known limitations, especially when scaled beyond a single site. Here, three improvements are proposed:
+### Model improvements
 
-1. **Add a chilling requirement before heat accumulation**  
-   Temperate trees require a minimum winter chilling period to break dormancy.  
-   The current model ignores chilling, which may bias early or warm years.
+The simple GDD model used in Chapter 6 provides a useful first approximation of spring leaf-out, but it has well-known limitations when applied beyond a single site. Three improvements can be made to increase robustness and make the model suitable for regional applications.
 
-2. **Use a non-linear temperature response function**  
-   Linear GDD accumulation assumes that all degrees above the threshold contribute equally.  
-   A triangular or double-sigmoid response captures optimum and saturation effects.
+**(1) Include a chilling requirement before heat accumulation**  
+Deciduous broadleaf species require winter chilling to break dormancy and become responsive to spring warming. Years with insufficient chilling accumulate GDD earlier but do not necessarily produce an earlier phenological response. Adding a chilling phase helps reduce early predictions in exceptionally warm winters.
 
-3. **Allow spatially variable model parameters**  
-   When the model is applied regionally, parameters derived at Harvard cannot represent different elevations, species compositions, or microclimates.  
-   Calibrating thresholds per pixel or regressing them against environmental gradients improves scalability.
+**(2) Use a non-linear temperature response**  
+The linear GDD formulation assumes that all heat above the threshold contributes equally to leaf development. In reality, heat accumulation saturates at high temperatures and becomes inefficient at low temperatures. Non-linear functions, such as triangular or sigmoid responses, reduce unrealistically early or late predictions.
 
-In the following, we implement the first improvement (chilling requirement).
+**(3) Allow spatially variable model parameters**  
+Parameters calibrated at a single site (Harvard Forest) cannot be directly transferred to regional scales, where species composition, elevation, land cover, and microclimate vary substantially. Parameters can be estimated per pixel or modelled as functions of environmental predictors to improve spatial realism.
+
+**(4) Photoperiod (bonus)**
+Photoperiod is a key regulator of dormancy status in temperate deciduous trees (Maurya & Bhalerao, 2017). While temperature drives spring development, trees do not respond to warmth until a photoperiodic threshold is reached. Integrating a daylength-based gating mechanism into a GDD model is therefore biologically justified.
+
+In the following section, the first improvement (chilling requirement + GDD accumulation) is implemented and compared with the baseline model.
+
 
 #### ***2. Implementation of optimization***
 ```{r implementation}
@@ -257,6 +287,270 @@ lm_chill <- lm(prediction_chill ~ doy, data = validation_chill)
 summary(lm_chill)
 
 ```
-INTERPRETATIONNNNNNNN
+###### Comparison between the baseline and improved models
 
-#### ***3. Spatial scaling***
+inser text!!!!!!!!!!!!!!!!!!!!!!!
+and because this method seems to doesn't work, i will try to use photo-period as a new factor to predict the DOY of leaf out day (or smth like that)
+
+#### ***3. Implementation of a second optimization***
+Previous studies indicate that the onset of spring leaf-out in temperate deciduous trees is regulated by both temperature accumulation and photoperiod thresholds. For example, Meng et al. (2021) calibrated a minimum daylength (DLstart*) between ~10.7 and ~11.9 h for several European species. Fu et al. (2019) found a photoperiod threshold of ~14.7 h (DOY ~120) below which leaf-out was delayed or required greater heat accumulation. Heat-requirements (GDD) vary widely among species (Dantec et al. 2014) but values of ~100-300 °C·d are typical in central Europe. Base temperatures of 0 °C have also been used (Walde et al. 2022). Therefore, setting our parameter bounds to temp_threshold ∈ [−5,10] °C, gdd_crit ∈ [50,400] °C·d and photoperiod_crit ∈ [9,15] h is consistent with the literature.
+```{r photoperiod_optimisation_model}
+#model's optimisation
+data_photo <- list(
+  drivers    = harvard_temp,
+  validation = harvard_phenology
+)
+
+# par = c(temp_threshold, gdd_crit, photoperiod_crit)
+par0_photo   <- c(0,   200,  11)   
+lower_photo  <- c(-5,   50,   9)   
+upper_photo  <- c(10,  400,  15)
+
+optim_par_photo <- GenSA::GenSA(
+  par    = par0_photo,
+  fn     = rmse_gdd_photo,
+  lower  = lower_photo,
+  upper  = upper_photo,
+  control = list(max.call = 1000),
+  data   = data_photo
+)$par
+
+optim_par_photo
+```
+```{r prediction_and_validation}
+# Annual prediction with the photo-thermal model
+predictions_photo <- harvard_temp |>
+  dplyr::group_by(year) |>
+  dplyr::summarise(
+    prediction_photo = gdd_photo_model(
+      temp        = tmean,
+      photoperiod = photoperiod,
+      par         = optim_par_photo
+    )
+  )
+
+validation_photo <- dplyr::left_join(predictions_photo, harvard_phenology)
+
+# Regression
+lm_photo <- lm(prediction_photo ~ doy, data = validation_photo)
+summary(lm_photo)
+
+```
+```{r comparison}
+ggplot(validation_photo) +
+  geom_point(aes(doy, prediction_photo)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dotted") +
+  labs(
+    x = "Observed DOY",
+    y = "Predicted DOY (GDD + photoperiod)"
+  ) +
+  theme_bw()
+
+```
+#### ***4. Spatial scaling***
+
+```{r spatialscaling}
+
+# Download DAYMET tile via GitHub fallback (comme dans le cours)
+
+local_file <- tempfile(fileext = ".nc")
+
+download.file(
+  "https://github.com/fabern/handfull_of_pixels/raw/refs/heads/main/data/DAYMET.004_2012/DAYMET.004_1km_aid0001.nc",
+  destfile = local_file,
+  mode = "wb"
+)
+
+r1 <- terra::rast(local_file)
+# Assign the correct CRS, e.g. WGS84 (EPSG:4326)
+terra::crs(r1) <- "epsg:4326"
+
+# Calculate the daily mean values based on 'tmin' and 'tmax'
+mean_layer <- terra::mean(r1["tmax"], 
+                          r1["tmin"])
+# fix the variable naming
+varnames(mean_layer) <- "tmean"                             
+names(mean_layer) <- gsub("tmax","tmean",names(mean_layer))
+
+# subset to first 180 days
+
+ma_nh_temp <- terra::subset(
+mean_layer,
+1:180
+)
+
+ma_nh_temp
+
+# Apply baseline GDD model to raster stack
+
+predicted_phenology_gdd <- terra::app(
+ma_nh_temp,
+fun = gdd_model,
+par = optim_par
+)
+
+predicted_phenology_gdd
+
+
+# Apply chilling + GDD model to raster stack
+
+predicted_phenology_chill <- terra::app(
+ma_nh_temp,
+fun = gdd_chill_model,
+par = optim_par_chill
+)
+
+predicted_phenology_chill
+
+par(mfrow = c(1, 2))
+plot(predicted_phenology_gdd, main = "Leaf-out DOY (GDD model)")
+plot(predicted_phenology_chill, main = "Leaf-out DOY (chill + GDD model)")
+par(mfrow = c(1, 1))
+
+```
+
+#### ***5.MODIS MCD12Q2 phenology***
+##### ***5.1. MODIS time series at Harvard***
+```{r MODIS_time_series_at_Harvard}
+# Coordinates approximating Harvard Forest
+
+harvard_lat <- 42.5378
+harvard_lon <- -72.1715
+
+# Download MCD12Q2 Greenup_DOY for 2001–2020
+
+modis_harvard <- mt_subset(
+product  = "MCD12Q2",
+band     = "Greenup.Num_Modes_01",
+lat      = harvard_lat,
+lon      = harvard_lon,
+start    = "2001-01-01",
+end      = "2020-12-31",
+km_lr    = 0,
+km_ab    = 0,
+site_name = "harvard",
+internal = TRUE,
+progress = TRUE
+)
+
+head(modis_harvard)
+
+
+# Convert to yearly time series
+
+modis_harvard_ts <- modis_harvard |>
+dplyr::select(calendar_date, value) |>
+dplyr::mutate(
+date = as.Date(calendar_date),
+year = as.numeric(format(date, "%Y"))
+) |>
+dplyr::group_by(year) |>
+dplyr::summarise(
+greenup_doy = mean(value, na.rm = TRUE)
+)
+
+head(modis_harvard_ts)
+
+# Merge with model predictions at Harvard
+
+comparison_point <- validation |>
+dplyr::left_join(modis_harvard_ts, by = "year")
+
+head(comparison_point)
+
+ggplot(comparison_point) +
+geom_point(aes(doy, greenup_doy)) +
+geom_abline(slope = 1, intercept = 0, linetype = "dotted") +
+labs(
+x = "Observed leaf-out DOY (PhenoCam)",
+y = "MODIS Greenup_DOY"
+) +
+theme_bw()
+
+```
+
+### Spatial comparison with the MODIS MCD12Q2 product
+
+inser text!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+##### ***5.2 MODIS spatial subset (around Boston / MA–NH region)***
+```{r MODIS_spatial_subset}
+# Region approximating the DAYMET tile (centred on ~43N, -71W)
+
+modis_ma_nh <- mt_subset(
+product  = "MCD12Q2",
+band     = "Greenup.Num_Modes_01",
+lat      = 43,
+lon      = -71,
+start    = "2012-01-01",
+end      = "2012-12-31",
+km_lr    = 100,   # ~100 km around the point
+km_ab    = 100,
+site_name = "ma_nh_2012",
+internal  = TRUE,
+progress  = TRUE
+)
+
+head(modis_ma_nh)
+
+# Convert tidy MODISTools data frame to terra SpatRaster
+
+modis_ma_nh_rast <- mt_to_terra(
+df        = modis_ma_nh,
+reproject = TRUE    # to lat/lon
+)
+
+modis_ma_nh_rast
+
+# Align MODIS raster to DAYMET-based prediction grid
+
+modis_ma_nh_crop <- terra::crop(modis_ma_nh_rast, predicted_phenology_gdd)
+
+modis_resampled <- terra::resample(
+modis_ma_nh_crop,
+predicted_phenology_gdd,
+method = "bilinear"
+)
+
+modis_resampled
+
+par(mfrow = c(1, 3))
+plot(predicted_phenology_gdd, main = "GDD model DOY")
+plot(modis_resampled, main = "MODIS Greenup_DOY")
+plot(modis_resampled - predicted_phenology_gdd,
+main = "MODIS - model (DOY)")
+par(mfrow = c(1, 1))
+
+# Simple summary statistics of the difference
+
+diff_map <- modis_resampled - predicted_phenology_gdd
+
+terra::global(diff_map, fun = "mean", na.rm = TRUE)
+terra::global(diff_map, fun = "sd",   na.rm = TRUE)
+
+```
+
+### Why modelled and MODIS patterns differ
+
+inser text!!!!!!!!!!!!!!!!!!!!!!
+
+##### ***Focus on year 2010 (special year) – code support***
+```{r year_2010}
+comparison_point_long <- comparison_point |>
+dplyr::select(year, doy, prediction, greenup_doy) |>
+tidyr::pivot_longer(
+cols = c(doy, prediction, greenup_doy),
+names_to = "source",
+values_to = "DOY"
+)
+
+ggplot(comparison_point_long, aes(year, DOY, colour = source)) +
+geom_line() +
+geom_point(data = subset(comparison_point_long, year == 2010),
+size = 3) +
+theme_bw()
+
+```
+
+###### 2010 as a “special” year in the northeastern United States
+inser teeext!!!!!!!!!!!!!!!!

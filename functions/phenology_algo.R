@@ -91,7 +91,7 @@ gdd_chill_model <- function(temp, par) {
 }
 
 # --------------------------------------
-#  RMSE pour le modèle chilling + GDD
+#  RMSE for the model chilling + GDD
 # --------------------------------------
 rmse_gdd_chill <- function(par, data) {
   
@@ -117,3 +117,55 @@ rmse_gdd_chill <- function(par, data) {
   
   return(rmse)
 }
+
+# --------------------------------------
+#       Photo-thermal GDD model
+#par = c(temp_threshold, gdd_crit, photoperiod_crit)
+# --------------------------------------
+gdd_photo_model <- function(temp, photoperiod, par) {
+  
+  temp_threshold   <- par[1]
+  gdd_crit         <- par[2]
+  photoperiod_crit <- par[3]
+  
+  # accumulate GDD
+  gdd <- cumsum(ifelse(temp > temp_threshold, temp - temp_threshold, 0))
+  
+  # find first day where both conditions are met
+  idx <- which(gdd >= gdd_crit & photoperiod >= photoperiod_crit)[1]
+  
+  if (is.na(idx)) return(NA_integer_)
+  
+  return(idx)
+}
+
+# --------------------------------------
+#    RMSE for photo-thermal model
+# --------------------------------------
+rmse_gdd_photo_fast <- function(par, data) {
+  drivers    <- data$drivers
+  validation <- data$validation
+  
+  # 1) Calcul des prédictions par année (toujours via gdd_photo_model)
+  preds_by_year <- drivers |>
+    dplyr::group_by(year) |>
+    dplyr::summarise(
+      predictions = gdd_photo_model(
+        temp        = tmean,
+        photoperiod = photoperiod,
+        par         = par
+      ),
+      .groups = "drop"
+    )
+  
+  # 2) Jointure (toujours nécessaire, mais une seule fois)
+  merged <- dplyr::left_join(preds_by_year, validation, by = "year")
+  
+  # 3) RMSE en base R
+  err  <- merged$predictions - merged$doy
+  rmse <- sqrt(mean(err^2, na.rm = TRUE))
+  
+  rmse
+}
+
+
