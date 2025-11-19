@@ -1,5 +1,5 @@
 ---
-title: "phenology_modelling"
+title: "Report Exercise: Phenology Modelling"
 author: "Emma Biland"
 output: html_document
 ---
@@ -23,7 +23,7 @@ This exercise focuses on modelling growing degree days (GDD), a common measure o
 
 The GDD model and its optimisation procedure are also based on Section 6. Model calibration yielded estimates for two key parameters: a temperature threshold of  2.81 °C and an accumulation period of 228.28 days. These parameters were then used to predict growing degree days for the period MISSING DATAAAAA!!!!!!!!!!!!!!!!!!.
 
-#####***Data download and preprocessing (Harvard PhenoCam + DAYMET)***
+##### ***Data download and preprocessing (Harvard PhenoCam + DAYMET)***
 
 ```{r data_harvard,  message=FALSE}
 # Loading and processing data from harvard
@@ -92,7 +92,7 @@ harvard_phenology <- harvard_phenology |>
 source("../functions/phenology_algo.R")
 ```
 
-#####***Baseline GDD model***
+##### ***Baseline GDD model***
 ```{r model_optimisation, message=FALSE}
 # starting model parameters
 par = c(0, 130)
@@ -176,8 +176,8 @@ summary(model_lm)
 
 A linear regression between predicted and observed leaf-out dates (Fig. XXXX) shows a slope of 0.75 and a non-significant intercept, indicating that the GDD model captures the timing of spring phenology without a strong overall bias. However, the slope is clearly lower than the ideal value of 1, meaning that the model underestimates interannual variability: early years are predicted too late, while late years are predicted too early. The explained variance is moderate (R² = 0.46), and residual errors range between approximately –8 and +5 days, which is consistent with typical performance of simple temperature-based GDD models. Overall, the model reproduces general phenological timing reasonably well but fails to fully capture year-to-year fluctuations.
 
-###***Exercise**
-####***1. Model optimization***
+### ***Exercise***
+#### ***1. Model optimization***
 The growing degree day (GDD) model implemented in Chapter 6 provides a simple and robust approximation of spring phenology. However, such threshold-based formulations have well-known limitations, especially when scaled beyond a single site. Here, three improvements are proposed:
 
 1. **Add a chilling requirement before heat accumulation**  
@@ -194,7 +194,7 @@ The growing degree day (GDD) model implemented in Chapter 6 provides a simple an
 
 In the following, we implement the first improvement (chilling requirement).
 
-####***2. Implementation of optimization***
+#### ***2. Implementation of optimization***
 ```{r implementation}
 # Data list reused
 
@@ -259,4 +259,4 @@ summary(lm_chill)
 ```
 INTERPRETATIONNNNNNNN
 
-####***3. Spatial scaling***
+#### ***3. Spatial scaling***
