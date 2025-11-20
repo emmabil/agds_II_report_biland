@@ -249,26 +249,93 @@ rmse_gdd_photo <- function(par, data) {
   drivers    <- data$drivers
   validation <- data$validation
   
-  yrs   <- sort(unique(drivers$year))
-  n_yrs <- length(yrs)
+  years <- sort(unique(drivers$year))
+  n_yrs <- length(years)
+  preds <- rep(NA_real_, n_yrs)
+  obs   <- rep(NA_real_, n_yrs)
   
-  preds <- numeric(n_yrs)
-  obs   <- numeric(n_yrs)
-  
-  for (i in seq_along(yrs)) {
-    yr  <- yrs[i]
+  for (i in seq_along(years)) {
+    yr  <- years[i]
     idx <- drivers$year == yr
     
-    preds[i] <- gdd_photo_model(
-      temp        = drivers$tmean[idx],
-      photoperiod = drivers$photoperiod[idx],
-      par         = par
+    # si, pour une raison quelconque, pas de données -> on saute
+    if (!any(idx)) next
+    
+    # 1) prédiction du modèle pour cette année
+    p <- try(
+      gdd_photo_model(
+        temp        = drivers$tmean[idx],
+        photoperiod = drivers$photoperiod[idx],
+        par         = par
+      ),
+      silent = TRUE
     )
     
-    # DOY observé pour cette année
-    obs[i] <- validation$doy[validation$year == yr]
+    # si le modèle plante ou renvoie une erreur -> on ignore cette année
+    if (inherits(p, "try-error")) next
+    
+    # si le modèle renvoie plusieurs valeurs, on prend la moyenne
+    if (length(p) > 1) p <- mean(p, na.rm = TRUE)
+    
+    preds[i] <- p
+    
+    # 2) observation pour cette année
+    o <- validation$doy[validation$year == yr]
+    
+    if (length(o) == 0) {
+      # pas d'observation -> obs reste NA
+      next
+    } else if (length(o) > 1) {
+      # plusieurs obs pour la même année -> on prend la moyenne
+      o <- mean(o, na.rm = TRUE)
+    }
+    
+    obs[i] <- o
   }
   
-  valid <- !is.na(preds) & !is.na(obs)
-  sqrt(mean((preds[valid] - obs[valid])^2))
+  # années où on a à la fois une prédiction et une obs
+  valid <- is.finite(preds) & is.finite(obs)
+  
+  # si aucune année valide -> grosse pénalité
+  if (!any(valid)) return(1e12)
+  
+  rmse <- sqrt(mean((preds[valid] - obs[valid])^2))
+  
+  # par sécurité, si encore NaN / Inf -> pénalité
+  if (!is.finite(rmse) || is.na(rmse)) rmse <- 1e12
+  
+  rmse
+}
+# -------------------------------------------------
+# Leave-one-year-out cross-validation for GDD model
+# -------------------------------------------------
+loocv_rmse_gdd <- function(par, data) {
+  
+  drivers    <- data$drivers
+  validation <- data$validation
+  
+  years <- sort(unique(validation$year))
+  n_yrs <- length(years)
+  
+  preds_cv <- numeric(n_yrs)
+  obs_cv   <- numeric(n_yrs)
+  
+  for (i in seq_along(years)) {
+    yr_test <- years[i]
+    
+    # "jeu de test" = une seule année
+    test_idx  <- validation$year == yr_test
+    obs_cv[i] <- validation$doy[test_idx]
+    
+    # prédiction pour cette année avec les paramètres globaux "par"
+    temp_year <- drivers$tmean[drivers$year == yr_test]
+    
+    preds_cv[i] <- gdd_model(
+      temp = temp_year,
+      par  = par
+    )
+  }
+  
+  valid <- !is.na(preds_cv) & !is.na(obs_cv)
+  sqrt(mean((preds_cv[valid] - obs_cv[valid])^2))
 }

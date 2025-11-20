@@ -219,158 +219,21 @@ Parameters calibrated at a single site (Harvard Forest) cannot be directly trans
 
 **(4) Photoperiod (bonus)**
 Photoperiod is a key regulator of dormancy status in temperate deciduous trees (Maurya & Bhalerao, 2017). While temperature drives spring development, trees do not respond to warmth until a photoperiodic threshold is reached. Integrating a daylength-based gating mechanism into a GDD model is therefore biologically justified.
+But at this latitude, reasonable photoperiod thresholds are reached well before the accumulation of sufficient GDD, so daylength has little constraining effect in the simple photo-thermal formulation tested here.
 
 In the following section, the first improvement (chilling requirement + GDD accumulation) is implemented and compared with the baseline model.
 
 
 #### ***2. Implementation of optimization***
-```{r implementation}
-# Data list reused
+```{r optimization}
+# RMSE global (déjà implicite via rmse_gdd)
+rmse_global <- rmse_gdd(optim_par, data)
 
-data_chill <- list(
-drivers    = harvard_temp,
-validation = harvard_phenology
-)
+# RMSE leave-one-year-out (évaluation)
+rmse_loocv  <- loocv_rmse_gdd(optim_par, data)
 
-# parameter vector: c(chill_threshold, required_chill, gdd_threshold, gdd_crit)
-
-par0_chill  <- c(5,   100,  0,   200)
-lower_chill <- c(-5,   10, -5,    10)
-upper_chill <- c(10,  300, 15,   600)
-
-optim_par_chill <- GenSA::GenSA(
-par    = par0_chill,
-fn     = rmse_gdd_chill,
-lower  = lower_chill,
-upper  = upper_chill,
-control = list(
-max.call = 5000
-),
-data = data_chill
-)$par
-
-optim_par_chill
-
-# predictions with chilling + GDD model
-
-predictions_chill <- harvard_temp |>
-dplyr::group_by(year) |>
-dplyr::summarise(
-prediction_chill = gdd_chill_model(
-temp = tmean,
-par  = optim_par_chill
-)
-)
-
-validation_chill <- dplyr::left_join(predictions_chill, harvard_phenology)
-
-head(validation_chill)
-
-# Quick comparison scatterplot baseline vs chilling model (facultatif)
-
-p1 <- ggplot(validation) +
-geom_point(aes(doy, prediction)) +
-geom_abline(slope = 1, intercept = 0, linetype = "dotted") +
-labs(x = "Observed DOY", y = "Predicted DOY (GDD)") +
-theme_bw()
-
-p2 <- ggplot(validation_chill) +
-geom_point(aes(doy, prediction_chill)) +
-geom_abline(slope = 1, intercept = 0, linetype = "dotted") +
-labs(x = "Observed DOY", y = "Predicted DOY (chill + GDD)") +
-theme_bw()
-
-p1 + p2 + plot_layout(ncol = 2)
-
-lm_chill <- lm(prediction_chill ~ doy, data = validation_chill)
-summary(lm_chill)
-
-```
-###### Comparison between the baseline and improved models
-
-inser text!!!!!!!!!!!!!!!!!!!!!!!
-and because this method seems to doesn't work, i will try to use photo-period as a new factor to predict the DOY of leaf out day (or smth like that)
-
-#### ***3. Implementation of a second optimization***
-Previous studies indicate that the onset of spring leaf-out in temperate deciduous trees is regulated by both temperature accumulation and photoperiod thresholds. For example, Meng et al. (2021) calibrated a minimum daylength (DLstart*) between ~10.7 and ~11.9 h for several European species. Fu et al. (2019) found a photoperiod threshold of ~14.7 h (DOY ~120) below which leaf-out was delayed or required greater heat accumulation. Heat-requirements (GDD) vary widely among species (Dantec et al. 2014) but values of ~100-300 °C·d are typical in central Europe. Base temperatures of 0 °C have also been used (Walde et al. 2022). Therefore, setting our parameter bounds to temp_threshold ∈ [−5,10] °C, gdd_crit ∈ [50,400] °C·d and photoperiod_crit ∈ [9,15] h is consistent with the literature.
-
-```{r photoperiod_optimisation_model}
-#model's optimisation
-### Optimisation du modèle GDD + photopériode
-
-data_photo <- list(
-  drivers    = harvard_temp,
-  validation = harvard_phenology
-)
-#there is missing value for 2023, so I will skipped this year
-data_photo$drivers <- subset(
-  data_photo$drivers,
-  year %in% data_photo$validation$year)
-  
-# par = c(temp_threshold, gdd_crit, photoperiod_crit)
-par0_photo   <- c(0,   200,  11)   # point de départ
-lower_photo  <- c(-5,  50, 12)
-upper_photo  <- c(10, 400, 16)
-
-optim_photo <- optim(
-  par     = par0_photo,
-  fn      = rmse_gdd_photo,
-  data    = data_photo,
-  method  = "L-BFGS-B",
-  lower   = lower_photo,
-  upper   = upper_photo,
-  control = list(maxit = 300)   # 300 itérations suffisent largement
-)
-
-optim_par_photo <- optim_photo$par
-optim_par_photo
-
-
-```
-```{r prediction}
-# join predicted with observed data (photo-thermal model)
-validation_photo <- left_join(predictions_photo, harvard_phenology)
-
-ggplot(validation_photo) +
-  geom_smooth(
-    aes(
-      doy,
-      prediction_photo
-    ),
-    colour = "grey25",
-    method = "lm"
-  ) +
-  geom_point(
-    aes(
-      doy,
-      prediction_photo
-    )
-  ) +
-  geom_abline(
-    intercept = 0, 
-    slope     = 1, 
-    linetype  = "dotted"
-  ) +
-  labs(
-    x = "Observed leaf-out date (DOY)",
-    y = "Predicted leaf-out date (DOY, GDD + photoperiod)"
-  ) +
-  theme_bw() +
-  theme(
-    legend.position = "none"
-  )
-
-
-```
-```{r comparison}
-ggplot(validation_photo) +
-  geom_point(aes(doy, prediction_photo)) +
-  geom_abline(slope = 1, intercept = 0, linetype = "dotted") +
-  labs(
-    x = "Observed DOY",
-    y = "Predicted DOY (GDD + photoperiod)"
-  ) +
-  theme_bw()
+rmse_global
+rmse_loocv
 
 ```
 #### ***4. Spatial scaling***
