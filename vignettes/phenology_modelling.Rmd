@@ -160,7 +160,7 @@ ggplot(validation) +
       doy,
       prediction
     ),
-    colour = "grey25",
+    colour = "darkolivegreen",
     method = "lm"
   ) +
   geom_point(
@@ -226,36 +226,77 @@ In the following section, the first improvement (chilling requirement + GDD accu
 
 #### ***2. Implementation of optimization***
 ```{r optimization}
-data_start <- list(
+# data list for optimisation (same structure)
+data_tri <- list(
   drivers    = harvard_temp,
   validation = harvard_phenology
 )
 
-# garder seulement les années pour lesquelles on a une observation
-data_start$drivers <- subset(
-  data_start$drivers,
-  year %in% data_start$validation$year
-)
+# par = c(Tmin, Topt, Tmax, Hcrit)
+par0_tri   <- c(0, 15, 30, 80)    # point de départ plausible
+lower_tri  <- c(-5,  5, 20, 10)   # bornes minimales
+upper_tri  <- c(10, 25, 40, 300)  # bornes maximales
 
-# par = c(temp_threshold, gdd_crit, doy_start)
-par0_start   <- c(0, 150, 1)         # départ : commence le 1er janvier
-lower_start  <- c(-10, 50, 1)        # seuils plausibles
-upper_start  <- c(10, 400, 120)      # DOY_start max = 120 (fin avril)
-
-optim_start <- optim(
-  par     = par0_start,
-  fn      = rmse_gdd_start,
-  data    = data_start,
+optim_tri <- optim(
+  par     = par0_tri,
+  fn      = rmse_gdd_tri,
+  data    = data_tri,
   method  = "L-BFGS-B",
-  lower   = lower_start,
-  upper   = upper_start,
+  lower   = lower_tri,
+  upper   = upper_tri,
   control = list(maxit = 300)
 )
 
+optim_par_tri <- optim_tri$par
+optim_par_tri
 
+# Annual predictions with triangular model
+predictions_tri <- harvard_temp |>
+  dplyr::group_by(year) |>
+  dplyr::summarise(
+    prediction_tri = gdd_tri_model(
+      temp = tmean,
+      par  = optim_par_tri
+    )
+  )
+
+validation_tri <- dplyr::left_join(predictions_tri, harvard_phenology)
+
+# Regression
+lm_tri <- lm(prediction_tri ~ doy, data = validation_tri)
+summary(lm_tri)
+
+ggplot(validation_tri) +
+  geom_smooth(
+    aes(
+      doy,
+      prediction_tri
+    ),
+    colour = "darkorchid3",
+    method = "lm"
+  ) +
+  geom_point(
+    aes(
+      doy,
+      prediction_tri
+      )
+  ) +
+  geom_abline(
+    intercept=0,
+    slope=1,
+    linetype="dotted"
+  ) +
+  labs(
+    x = "Observed leaf-out date (DOY)",
+    y = "Predicted leaf-out date (DOY, triangular temperature response)"
+  ) +
+  theme_bw() +
+  theme(
+    legend.position = "none"
+  )
 ```
 #### ***4. Spatial scaling***
-
+Spatial scaling du modèle triangulaire (DAYMET → raster de DOY)
 ```{r spatialscaling}
 
 # Download DAYMET tile via GitHub fallback (comme dans le cours)
@@ -299,80 +340,134 @@ par = optim_par
 predicted_phenology_gdd
 
 
-# Apply chilling + GDD model to raster stack
+# Apply TRIANGULAR GDD model to the raster stack
 
-predicted_phenology_chill <- terra::app(
+# (uses your gdd_tri_model() and optim_par_tri defined earlier)
+
+predicted_phenology_tri <- terra::app(
 ma_nh_temp,
-fun = gdd_chill_model,
-par = optim_par_chill
+fun = gdd_tri_model,
+par = optim_par_tri
 )
 
-predicted_phenology_chill
+predicted_phenology_tri
+
 
 par(mfrow = c(1, 2))
 plot(predicted_phenology_gdd, main = "Leaf-out DOY (GDD model)")
-plot(predicted_phenology_chill, main = "Leaf-out DOY (chill + GDD model)")
+plot(predicted_phenology_tri, main = "Leaf-out DOY (chill + GDD model)")
 par(mfrow = c(1, 1))
 
 ```
 
-#### ***5.MODIS MCD12Q2 phenology***
-##### ***5.1. MODIS time series at Harvard***
+#### ***5.MODIS MCD12Q2 et comparaison spatiale***
 ```{r MODIS_time_series_at_Harvard}
-# Coordinates approximating Harvard Forest
+# --- MODIS MCD12Q2 phenology over MA–NH region (2012) ---
+# --- MODIS MCD12Q2 phenology over MA–NH region (2012) ---
 
-harvard_lat <- 42.5378
-harvard_lon <- -72.1715
-
-# Download MCD12Q2 Greenup_DOY for 2001–2020
-
-modis_harvard <- mt_subset(
-product  = "MCD12Q2",
-band     = "Greenup.Num_Modes_01",
-lat      = harvard_lat,
-lon      = harvard_lon,
-start    = "2001-01-01",
-end      = "2020-12-31",
-km_lr    = 0,
-km_ab    = 0,
-site_name = "harvard",
-internal = TRUE,
-progress = TRUE
+modis_ma_nh <- MODISTools::mt_subset(
+product   = "MCD12Q2",
+band      = "Greenup.Num_Modes_01",
+lat       = 43,
+lon       = -71,
+start     = "2012-01-01",
+end       = "2012-12-31",
+km_lr     = 100,         # ~100 km around the point
+km_ab     = 100,
+site_name = "ma_nh_2012",
+internal  = TRUE,
+progress  = TRUE
 )
 
-head(modis_harvard)
+# Convert MODIS values from "days since 1970-01-01" to DOY,
 
+# remove fill values and clearly unrealistic dates
 
-# Convert to yearly time series
-
-modis_harvard_ts <- modis_harvard |>
-dplyr::select(calendar_date, value) |>
+modis_ma_nh <- modis_ma_nh |>
 dplyr::mutate(
-date = as.Date(calendar_date),
-year = as.numeric(format(date, "%Y"))
-) |>
-dplyr::group_by(year) |>
-dplyr::summarise(
-greenup_doy = mean(value, na.rm = TRUE)
+value = ifelse(value > 32656, NA, value),                                   # fill values
+value = as.numeric(format(as.Date("1970-01-01") + value, "%j")),            # -> DOY
+value = ifelse(value < 200, value, NA_real_)                                # keep spring green-up only
 )
 
-head(modis_harvard_ts)
+# Tidy data frame -> SpatRaster
 
-# Merge with model predictions at Harvard
+modis_ma_nh_rast <- MODISTools::mt_to_terra(
+df        = modis_ma_nh,
+reproject = TRUE   # to lon/lat
+)
 
-comparison_point <- validation |>
-dplyr::left_join(modis_harvard_ts, by = "year")
+modis_ma_nh_rast
 
-head(comparison_point)
+# --- Align MODIS raster with model grid and compute difference ---
 
-ggplot(comparison_point) +
-geom_point(aes(doy, greenup_doy)) +
-geom_abline(slope = 1, intercept = 0, linetype = "dotted") +
-labs(
-x = "Observed leaf-out DOY (PhenoCam)",
-y = "MODIS Greenup_DOY"
-) +
-theme_bw()
+# Crop MODIS to the same extent as the model prediction
+
+modis_ma_nh_crop <- terra::crop(
+modis_ma_nh_rast,
+predicted_phenology_tri
+)
+
+# Resample MODIS to the model resolution
+
+modis_resampled <- terra::resample(
+modis_ma_nh_crop,
+predicted_phenology_tri,
+method = "bilinear"
+)
+
+# Difference map (MODIS – model)
+
+diff_map <- modis_resampled - predicted_phenology_tri
+
+# Simple sanity check statistics (optional)
+
+terra::global(diff_map, fun = "mean", na.rm = TRUE)
+terra::global(diff_map, fun = "sd",   na.rm = TRUE)
+
+# Plot: model, MODIS and difference
+
+par(mfrow = c(1, 3))
+plot(predicted_phenology_tri, main = "Leaf-out DOY (triangular GDD model)")
+plot(modis_resampled,        main = "MODIS Greenup_DOY (2012)")
+plot(diff_map,               main = "MODIS – model (DOY)")
+par(mfrow = c(1, 1))
+
+
+
+# --- Align MODIS raster with model grid and compute difference ---
+
+# Crop MODIS to the same extent as the model prediction
+
+modis_ma_nh_crop <- terra::crop(
+modis_ma_nh_rast,
+predicted_phenology_tri
+)
+
+# Resample MODIS to the model resolution
+
+modis_resampled <- terra::resample(
+modis_ma_nh_crop,
+predicted_phenology_tri,
+method = "bilinear"
+)
+
+# Difference map (MODIS – model)
+
+diff_map <- modis_resampled - predicted_phenology_tri
+
+# Simple sanity check statistics (optional)
+
+terra::global(diff_map, fun = "mean", na.rm = TRUE)
+terra::global(diff_map, fun = "sd",   na.rm = TRUE)
+
+# Plot: model, MODIS and difference
+
+par(mfrow = c(1, 3))
+plot(predicted_phenology_tri, main = "Leaf-out DOY (triangular GDD model)")
+plot(modis_resampled,        main = "MODIS Greenup_DOY (2012)")
+plot(diff_map,               main = "MODIS – model (DOY)")
+par(mfrow = c(1, 1))
 
 ```
 

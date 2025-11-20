@@ -382,50 +382,32 @@ gdd_tri_model <- function(temp, par) {
 # --------------------------------------
 # RMSE for triangular model
 # --------------------------------------
-rmse_gdd_tri <- function(par, data) {
+gdd_tri_model <- function(temp, par) {
+  Tmin <- par[1]
+  Topt <- par[2]
+  Tmax <- par[3]
   
-  drivers    <- data$drivers
-  validation <- data$validation
-  
-  years <- sort(unique(drivers$year))
-  n_yrs <- length(years)
-  preds <- rep(NA_real_, n_yrs)
-  obs   <- rep(NA_real_, n_yrs)
-  
-  for (i in seq_along(years)) {
-    yr  <- years[i]
-    idx <- drivers$year == yr
-    
-    # si pas de données pour cette année -> on saute
-    if (!any(idx)) next
-    
-    # prédiction triangulaire
-    p <- try(
-      gdd_tri_model(
-        temp = drivers$tmean[idx],
-        par  = par
-      ),
-      silent = TRUE
-    )
-    
-    if (inherits(p, "try-error") || length(p) == 0) next
-    preds[i] <- p
-    
-    # obs PhenoCam pour cette année
-    o <- validation$doy[validation$year == yr]
-    if (length(o) == 0) next
-    if (length(o) > 1) o <- mean(o, na.rm = TRUE)
-    obs[i] <- o
+  # if everything is NA, return NA for this cell
+  if (all(is.na(temp))) {
+    return(NA_real_)
   }
   
-  valid <- is.finite(preds) & is.finite(obs)
-  if (!any(valid)) return(1e12)
+  dev <- rep(0, length(temp))
   
-  rmse <- sqrt(mean((preds[valid] - obs[valid])^2))
-  if (!is.finite(rmse) || is.na(rmse)) rmse <- 1e12
+  idx1 <- temp > Tmin & temp <= Topt
+  idx2 <- temp > Topt & temp < Tmax
   
-  rmse
+  # remove NAs from the indices
+  idx1[is.na(idx1)] <- FALSE
+  idx2[is.na(idx2)] <- FALSE
+  
+  dev[idx1] <- (temp[idx1] - Tmin) / (Topt - Tmin)
+  dev[idx2] <- (Tmax - temp[idx2]) / (Tmax - Topt)
+  
+  # sum over time, ignore remaining NAs in dev/temp
+  sum(dev, na.rm = TRUE)
 }
+
 
 
 # --------------------------------------
