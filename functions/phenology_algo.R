@@ -426,3 +426,63 @@ rmse_gdd_tri <- function(par, data) {
   
   rmse
 }
+
+
+# --------------------------------------
+# GDD model with optimized start date
+# par = c(temp_threshold, gdd_crit, doy_start)
+# --------------------------------------
+gdd_start_model <- function(temp, doy, par) {
+  
+  temp_threshold <- par[1]
+  gdd_crit       <- par[2]
+  doy_start      <- par[3]   # day-of-year at which accumulation begins
+  
+  # indices à partir desquels on commence l'accumulation
+  idx <- which(doy >= doy_start)
+  
+  if (length(idx) == 0) return(NA_integer_)
+  
+  temp_sub <- temp[idx]
+  
+  gdd <- cumsum(pmax(temp_sub - temp_threshold, 0))
+  
+  doy_offset <- which(gdd >= gdd_crit)[1]
+  
+  if (is.na(doy_offset)) return(NA_integer_)
+  
+  doy_start + doy_offset - 1
+}
+
+
+# --------------------------------------
+# RMSE for GDD + doy_start model
+# --------------------------------------
+rmse_gdd_start <- function(par, data) {
+  
+  drivers    <- data$drivers
+  validation <- data$validation
+  
+  years <- sort(unique(drivers$year))
+  preds <- numeric(length(years))
+  obs   <- numeric(length(years))
+  
+  for (i in seq_along(years)) {
+    yr  <- years[i]
+    idx <- drivers$year == yr
+    
+    preds[i] <- gdd_start_model(
+      temp = drivers$tmean[idx],
+      doy  = drivers$doy[idx],
+      par  = par
+    )
+    
+    # observation
+    obs[i] <- validation$doy[validation$year == yr]
+  }
+  
+  valid <- is.finite(preds) & is.finite(obs)
+  if (!any(valid)) return(1e12)
+  
+  sqrt(mean((preds[valid] - obs[valid])^2))
+}

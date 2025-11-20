@@ -226,70 +226,31 @@ In the following section, the first improvement (chilling requirement + GDD accu
 
 #### ***2. Implementation of optimization***
 ```{r optimization}
-##### ***Triangular temperature response GDD model***
-
-# data list for optimisation (same structure)
-data_tri <- list(
+data_start <- list(
   drivers    = harvard_temp,
   validation = harvard_phenology
 )
 
-# par = c(Tmin, Topt, Tmax, Hcrit)
-par0_tri   <- c(0, 15, 30, 80)    # point de départ plausible
-lower_tri  <- c(-5,  5, 20, 10)   # bornes minimales
-upper_tri  <- c(10, 25, 40, 300)  # bornes maximales
-
-optim_tri <- optim(
-  par     = par0_tri,
-  fn      = rmse_gdd_tri,
-  data    = data_tri,
-  method  = "L-BFGS-B",
-  lower   = lower_tri,
-  upper   = upper_tri,
-  control = list(maxit = 300)
+# garder seulement les années pour lesquelles on a une observation
+data_start$drivers <- subset(
+  data_start$drivers,
+  year %in% data_start$validation$year
 )
 
-optim_par_tri <- optim_tri$par
-optim_par_tri
+# par = c(temp_threshold, gdd_crit, doy_start)
+par0_start   <- c(0, 150, 1)         # départ : commence le 1er janvier
+lower_start  <- c(-10, 50, 1)        # seuils plausibles
+upper_start  <- c(10, 400, 120)      # DOY_start max = 120 (fin avril)
 
-# Annual predictions with triangular model
-predictions_tri <- harvard_temp |>
-  dplyr::group_by(year) |>
-  dplyr::summarise(
-    prediction_tri = gdd_tri_model(
-      temp = tmean,
-      par  = optim_par_tri
-    )
-  )
-
-validation_tri <- dplyr::left_join(predictions_tri, harvard_phenology)
-
-# Regression
-lm_tri <- lm(prediction_tri ~ doy, data = validation_tri)
-summary(lm_tri)
-
-ggplot(validation_tri) +
-  geom_smooth(
-    aes(doy, prediction_tri),
-    colour = "grey25",
-    method = "lm"
-  ) +
-  geom_point(
-    aes(doy, prediction_tri)
-  ) +
-  geom_abline(
-    intercept = 0,
-    slope     = 1,
-    linetype  = "dotted"
-  ) +
-  labs(
-    x = "Observed leaf-out date (DOY)",
-    y = "Predicted leaf-out date (DOY, triangular temperature response)"
-  ) +
-  theme_bw() +
-  theme(
-    legend.position = "none"
-  )
+optim_start <- optim(
+  par     = par0_start,
+  fn      = rmse_gdd_start,
+  data    = data_start,
+  method  = "L-BFGS-B",
+  lower   = lower_start,
+  upper   = upper_start,
+  control = list(maxit = 300)
+)
 
 
 ```
