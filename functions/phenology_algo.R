@@ -339,3 +339,90 @@ loocv_rmse_gdd <- function(par, data) {
   valid <- !is.na(preds_cv) & !is.na(obs_cv)
   sqrt(mean((preds_cv[valid] - obs_cv[valid])^2))
 }
+
+# --------------------------------------
+# Triangular temperature response model
+# par = c(Tmin, Topt, Tmax, Hcrit)
+# --------------------------------------
+gdd_tri_model <- function(temp, par) {
+  
+  Tmin  <- par[1]
+  Topt  <- par[2]
+  Tmax  <- par[3]
+  Hcrit <- par[4]
+  
+  # contraintes de base : si non respectées -> pas de solution
+  if (Tmin >= Topt || Topt >= Tmax) {
+    return(NA_integer_)
+  }
+  
+  # taux de développement journalier (0–1)
+  dev <- numeric(length(temp))
+  
+  # zone croissante Tmin–Topt
+  idx1 <- temp > Tmin & temp < Topt
+  dev[idx1] <- (temp[idx1] - Tmin) / (Topt - Tmin)
+  
+  # zone décroissante Topt–Tmax
+  idx2 <- temp >= Topt & temp < Tmax
+  dev[idx2] <- (Tmax - temp[idx2]) / (Tmax - Topt)
+  
+  # dev = 0 en dehors [Tmin, Tmax]
+  
+  # somme cumulée
+  dev_cum <- cumsum(dev)
+  
+  # premier jour où on atteint Hcrit
+  doy <- which(dev_cum >= Hcrit)[1]
+  
+  if (is.na(doy)) return(NA_integer_)
+  return(doy)
+}
+
+# --------------------------------------
+# RMSE for triangular model
+# --------------------------------------
+rmse_gdd_tri <- function(par, data) {
+  
+  drivers    <- data$drivers
+  validation <- data$validation
+  
+  years <- sort(unique(drivers$year))
+  n_yrs <- length(years)
+  preds <- rep(NA_real_, n_yrs)
+  obs   <- rep(NA_real_, n_yrs)
+  
+  for (i in seq_along(years)) {
+    yr  <- years[i]
+    idx <- drivers$year == yr
+    
+    # si pas de données pour cette année -> on saute
+    if (!any(idx)) next
+    
+    # prédiction triangulaire
+    p <- try(
+      gdd_tri_model(
+        temp = drivers$tmean[idx],
+        par  = par
+      ),
+      silent = TRUE
+    )
+    
+    if (inherits(p, "try-error") || length(p) == 0) next
+    preds[i] <- p
+    
+    # obs PhenoCam pour cette année
+    o <- validation$doy[validation$year == yr]
+    if (length(o) == 0) next
+    if (length(o) > 1) o <- mean(o, na.rm = TRUE)
+    obs[i] <- o
+  }
+  
+  valid <- is.finite(preds) & is.finite(obs)
+  if (!any(valid)) return(1e12)
+  
+  rmse <- sqrt(mean((preds[valid] - obs[valid])^2))
+  if (!is.finite(rmse) || is.na(rmse)) rmse <- 1e12
+  
+  rmse
+}

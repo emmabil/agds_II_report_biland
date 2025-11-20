@@ -226,14 +226,71 @@ In the following section, the first improvement (chilling requirement + GDD accu
 
 #### ***2. Implementation of optimization***
 ```{r optimization}
-# RMSE global (déjà implicite via rmse_gdd)
-rmse_global <- rmse_gdd(optim_par, data)
+##### ***Triangular temperature response GDD model***
 
-# RMSE leave-one-year-out (évaluation)
-rmse_loocv  <- loocv_rmse_gdd(optim_par, data)
+# data list for optimisation (same structure)
+data_tri <- list(
+  drivers    = harvard_temp,
+  validation = harvard_phenology
+)
 
-rmse_global
-rmse_loocv
+# par = c(Tmin, Topt, Tmax, Hcrit)
+par0_tri   <- c(0, 15, 30, 80)    # point de départ plausible
+lower_tri  <- c(-5,  5, 20, 10)   # bornes minimales
+upper_tri  <- c(10, 25, 40, 300)  # bornes maximales
+
+optim_tri <- optim(
+  par     = par0_tri,
+  fn      = rmse_gdd_tri,
+  data    = data_tri,
+  method  = "L-BFGS-B",
+  lower   = lower_tri,
+  upper   = upper_tri,
+  control = list(maxit = 300)
+)
+
+optim_par_tri <- optim_tri$par
+optim_par_tri
+
+# Annual predictions with triangular model
+predictions_tri <- harvard_temp |>
+  dplyr::group_by(year) |>
+  dplyr::summarise(
+    prediction_tri = gdd_tri_model(
+      temp = tmean,
+      par  = optim_par_tri
+    )
+  )
+
+validation_tri <- dplyr::left_join(predictions_tri, harvard_phenology)
+
+# Regression
+lm_tri <- lm(prediction_tri ~ doy, data = validation_tri)
+summary(lm_tri)
+
+ggplot(validation_tri) +
+  geom_smooth(
+    aes(doy, prediction_tri),
+    colour = "grey25",
+    method = "lm"
+  ) +
+  geom_point(
+    aes(doy, prediction_tri)
+  ) +
+  geom_abline(
+    intercept = 0,
+    slope     = 1,
+    linetype  = "dotted"
+  ) +
+  labs(
+    x = "Observed leaf-out date (DOY)",
+    y = "Predicted leaf-out date (DOY, triangular temperature response)"
+  ) +
+  theme_bw() +
+  theme(
+    legend.position = "none"
+  )
+
 
 ```
 #### ***4. Spatial scaling***
