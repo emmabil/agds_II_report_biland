@@ -81,11 +81,10 @@ harvard_lon <- -72.1715
 harvard_temp <- harvard_temp |>
   dplyr::mutate(
     doy = as.numeric(format(date, "%j")),
-    # geosphere::daylength attend la latitude en radians
     photoperiod = geosphere::daylength(
       lat = harvard_lat * pi/180,
       doy = doy
-    ) / 3600  # conversion secondes -> heures
+    )   # déjà en heures
   )
 
 
@@ -294,46 +293,73 @@ and because this method seems to doesn't work, i will try to use photo-period as
 
 #### ***3. Implementation of a second optimization***
 Previous studies indicate that the onset of spring leaf-out in temperate deciduous trees is regulated by both temperature accumulation and photoperiod thresholds. For example, Meng et al. (2021) calibrated a minimum daylength (DLstart*) between ~10.7 and ~11.9 h for several European species. Fu et al. (2019) found a photoperiod threshold of ~14.7 h (DOY ~120) below which leaf-out was delayed or required greater heat accumulation. Heat-requirements (GDD) vary widely among species (Dantec et al. 2014) but values of ~100-300 °C·d are typical in central Europe. Base temperatures of 0 °C have also been used (Walde et al. 2022). Therefore, setting our parameter bounds to temp_threshold ∈ [−5,10] °C, gdd_crit ∈ [50,400] °C·d and photoperiod_crit ∈ [9,15] h is consistent with the literature.
+
 ```{r photoperiod_optimisation_model}
 #model's optimisation
+### Optimisation du modèle GDD + photopériode
+
 data_photo <- list(
   drivers    = harvard_temp,
   validation = harvard_phenology
 )
-
+#there is missing value for 2023, so I will skipped this year
+data_photo$drivers <- subset(
+  data_photo$drivers,
+  year %in% data_photo$validation$year)
+  
 # par = c(temp_threshold, gdd_crit, photoperiod_crit)
-par0_photo   <- c(0,   200,  11)   
-lower_photo  <- c(-5,   50,   9)   
-upper_photo  <- c(10,  400,  15)
+par0_photo   <- c(0,   200,  11)   # point de départ
+lower_photo  <- c(-5,  50, 12)
+upper_photo  <- c(10, 400, 16)
 
-optim_par_photo <- GenSA::GenSA(
-  par    = par0_photo,
-  fn     = rmse_gdd_photo,
-  lower  = lower_photo,
-  upper  = upper_photo,
-  control = list(max.call = 1000),
-  data   = data_photo
-)$par
+optim_photo <- optim(
+  par     = par0_photo,
+  fn      = rmse_gdd_photo,
+  data    = data_photo,
+  method  = "L-BFGS-B",
+  lower   = lower_photo,
+  upper   = upper_photo,
+  control = list(maxit = 300)   # 300 itérations suffisent largement
+)
 
+optim_par_photo <- optim_photo$par
 optim_par_photo
+
+
 ```
-```{r prediction_and_validation}
-# Annual prediction with the photo-thermal model
-predictions_photo <- harvard_temp |>
-  dplyr::group_by(year) |>
-  dplyr::summarise(
-    prediction_photo = gdd_photo_model(
-      temp        = tmean,
-      photoperiod = photoperiod,
-      par         = optim_par_photo
+```{r prediction}
+# join predicted with observed data (photo-thermal model)
+validation_photo <- left_join(predictions_photo, harvard_phenology)
+
+ggplot(validation_photo) +
+  geom_smooth(
+    aes(
+      doy,
+      prediction_photo
+    ),
+    colour = "grey25",
+    method = "lm"
+  ) +
+  geom_point(
+    aes(
+      doy,
+      prediction_photo
     )
+  ) +
+  geom_abline(
+    intercept = 0, 
+    slope     = 1, 
+    linetype  = "dotted"
+  ) +
+  labs(
+    x = "Observed leaf-out date (DOY)",
+    y = "Predicted leaf-out date (DOY, GDD + photoperiod)"
+  ) +
+  theme_bw() +
+  theme(
+    legend.position = "none"
   )
 
-validation_photo <- dplyr::left_join(predictions_photo, harvard_phenology)
-
-# Regression
-lm_photo <- lm(prediction_photo ~ doy, data = validation_photo)
-summary(lm_photo)
 
 ```
 ```{r comparison}

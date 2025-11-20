@@ -143,29 +143,132 @@ gdd_photo_model <- function(temp, photoperiod, par) {
 #    RMSE for photo-thermal model
 # --------------------------------------
 rmse_gdd_photo_fast <- function(par, data) {
+  
   drivers    <- data$drivers
   validation <- data$validation
   
-  # 1) Calcul des prédictions par année (toujours via gdd_photo_model)
-  preds_by_year <- drivers |>
-    dplyr::group_by(year) |>
-    dplyr::summarise(
-      predictions = gdd_photo_model(
-        temp        = tmean,
-        photoperiod = photoperiod,
-        par         = par
-      ),
-      .groups = "drop"
+  years <- sort(unique(drivers$year))
+  n_yrs <- length(years)
+  preds <- numeric(n_yrs)
+  obs   <- numeric(n_yrs)
+  
+  for (i in seq_along(years)) {
+    yr <- years[i]
+    idx <- drivers$year == yr
+    
+    preds[i] <- gdd_photo_model(
+      temp        = drivers$tmean[idx],
+      photoperiod = drivers$photoperiod[idx],
+      par         = par
     )
+    
+    obs[i] <- validation$doy[validation$year == yr]
+  }
   
-  # 2) Jointure (toujours nécessaire, mais une seule fois)
-  merged <- dplyr::left_join(preds_by_year, validation, by = "year")
-  
-  # 3) RMSE en base R
-  err  <- merged$predictions - merged$doy
-  rmse <- sqrt(mean(err^2, na.rm = TRUE))
-  
-  rmse
+  valid <- !is.na(preds) & !is.na(obs)
+  sqrt(mean((preds[valid] - obs[valid])^2))
 }
 
 
+# --------------------------------------
+# RMSE for photo-thermal model (slower)
+# --------------------------------------
+gdd_photo_model <- function(temp, photoperiod, par) {
+  
+  temp_threshold   <- par[1]
+  gdd_crit         <- par[2]
+  photoperiod_crit <- par[3]
+  
+  # GDD cumulés
+  gdd <- cumsum(ifelse(temp > temp_threshold, temp - temp_threshold, 0))
+  
+  # premier jour où on a à la fois assez de GDD et assez de photopériode
+  idx <- which(gdd >= gdd_crit & photoperiod >= photoperiod_crit)[1]
+  
+  if (is.na(idx)) return(NA_integer_)
+  return(idx)
+}
+
+# ----------------------------------------
+# RMSE pour le modèle photo-thermal
+# version "rapide" (sans dplyr dans la boucle)
+# ----------------------------------------
+rmse_gdd_photo <- function(par, data) {
+  
+  drivers    <- data$drivers
+  validation <- data$validation
+  
+  years <- sort(unique(drivers$year))
+  n_yrs <- length(years)
+  preds <- numeric(n_yrs)
+  obs   <- numeric(n_yrs)
+  
+  for (i in seq_along(years)) {
+    yr  <- years[i]
+    idx <- drivers$year == yr
+    
+    preds[i] <- gdd_photo_model(
+      temp        = drivers$tmean[idx],
+      photoperiod = drivers$photoperiod[idx],
+      par         = par
+    )
+    
+    obs[i] <- validation$doy[validation$year == yr]
+  }
+  
+  valid <- !is.na(preds) & !is.na(obs)
+  sqrt(mean((preds[valid] - obs[valid])^2))
+}
+
+# ----------------------------------------
+# Photo-thermal GDD model
+# par = c(temp_threshold, gdd_crit, photoperiod_crit)
+# ----------------------------------------
+gdd_photo_model <- function(temp, photoperiod, par) {
+  
+  temp_threshold   <- par[1]
+  gdd_crit         <- par[2]
+  photoperiod_crit <- par[3]
+  
+  # GDD cumulés (vectorisé)
+  gdd <- cumsum(pmax(temp - temp_threshold, 0))
+  
+  # premier jour où on a à la fois assez de GDD et assez de photopériode
+  idx <- which(gdd >= gdd_crit & photoperiod >= photoperiod_crit)[1]
+  
+  if (is.na(idx)) return(NA_integer_)
+  idx
+}
+
+# ----------------------------------------
+# RMSE pour le modèle photo-thermal
+# version "fast" (sans dplyr)
+# ----------------------------------------
+rmse_gdd_photo <- function(par, data) {
+  
+  drivers    <- data$drivers
+  validation <- data$validation
+  
+  yrs   <- sort(unique(drivers$year))
+  n_yrs <- length(yrs)
+  
+  preds <- numeric(n_yrs)
+  obs   <- numeric(n_yrs)
+  
+  for (i in seq_along(yrs)) {
+    yr  <- yrs[i]
+    idx <- drivers$year == yr
+    
+    preds[i] <- gdd_photo_model(
+      temp        = drivers$tmean[idx],
+      photoperiod = drivers$photoperiod[idx],
+      par         = par
+    )
+    
+    # DOY observé pour cette année
+    obs[i] <- validation$doy[validation$year == yr]
+  }
+  
+  valid <- !is.na(preds) & !is.na(obs)
+  sqrt(mean((preds[valid] - obs[valid])^2))
+}
