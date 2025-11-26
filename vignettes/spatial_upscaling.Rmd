@@ -1,0 +1,15 @@
+---
+title: "spatial_upscaling"
+output: html_document
+---
+
+## 2.1 Literature
+### 2.1.1 Difference between random and spatial cross-validation
+Random cross-validation divides all available samples randomly into \(k\) folds, without considering their spatial arrangement. Each fold is then used once as validation data while the remaining folds are used for model training. In the presence of spatial autocorrelation and clustered sampling, training and validation points tend to be geographically close and share very similar environmental conditions. As a result, random cross-validation mainly tests how well the model interpolates within sampled regions and often leads to overly optimistic estimates of model accuracy.:contentReference[oaicite:0]{index=0}
+Spatial cross-validation explicitly accounts for the spatial structure of the data. Instead of individual points, larger spatial units (e.g. grid blocks or geographic clusters) are assigned to different folds. For each fold, the model is trained on some spatial units and validated on distinct, geographically separated units. This setup better reflects the situation in spatial upscaling, where predictions are often required for regions that are far from any training data. Because training and validation environments are more different, spatial cross-validation usually produces lower, but more realistic, estimates of model transferability to new areas.:contentReference[oaicite:1]{index=1}
+
+
+### 2.1.2 Alternative distance measures for spatial upscaling
+In Ludwig et al. (2023), the “distance” between training and prediction locations is expressed as a geographical (Euclidean) distance. This is useful to represent how far predictions are made from sampled regions. However, spatial upscaling with machine learning is based on relationships between the target variable and environmental covariates (e.g. climate, soil, radiation). From this perspective, an alternative and often more direct measure of distance is a distance in environmental (feature) space rather than in geographic space.:contentReference[oaicite:2]{index=2}
+
+Such an environmental distance can be defined, for example, as the Euclidean or Mahalanobis distance between points in a multivariate space spanned by predictors such as mean annual temperature, precipitation, nitrogen deposition, and irradiance. Two locations can be geographically far apart but very similar in environmental space (e.g. two temperate, humid regions on different continents). In that case, the model can be expected to transfer reasonably well, even though the geographic distance is large. Conversely, nearby locations may be environmentally very different (e.g. valley vs. high mountain), which implies poor transferability despite small geographic distance. Using distances in environmental space is therefore closely aligned with the idea of environmental or feature-space cross-validation, where folds are defined by clusters in predictor space rather than by geographic position.:contentReference[oaicite:3]{index=3}
