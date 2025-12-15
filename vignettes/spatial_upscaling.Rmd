@@ -1,15 +1,325 @@
 ---
-title: "spatial_upscaling"
+title: "Spatial Upscaling"
+subtitle: "Report Exercise"
+author: "Emma Biland"
 output: html_document
 ---
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list = ls())
+```
 
-## 2.1 Literature
-### 2.1.1 Difference between random and spatial cross-validation
-Random cross-validation divides all available samples randomly into \(k\) folds, without considering their spatial arrangement. Each fold is then used once as validation data while the remaining folds are used for model training. In the presence of spatial autocorrelation and clustered sampling, training and validation points tend to be geographically close and share very similar environmental conditions. As a result, random cross-validation mainly tests how well the model interpolates within sampled regions and often leads to overly optimistic estimates of model accuracy.:contentReference[oaicite:0]{index=0}
-Spatial cross-validation explicitly accounts for the spatial structure of the data. Instead of individual points, larger spatial units (e.g. grid blocks or geographic clusters) are assigned to different folds. For each fold, the model is trained on some spatial units and validated on distinct, geographically separated units. This setup better reflects the situation in spatial upscaling, where predictions are often required for regions that are far from any training data. Because training and validation environments are more different, spatial cross-validation usually produces lower, but more realistic, estimates of model transferability to new areas.:contentReference[oaicite:1]{index=1}
+```{r library, message=FALSE, warning=FALSE}
+#Load libraries
+library(dplyr);library(ggplot2);library(recipes);library(caret);library(ranger);library(rnaturalearth);library(gridExtra);library(purrr);library(readr)
+```
+<br>
+### **Introduction**
+This exercise follows the Spatial Upscaling workflow from the GECO course material and focuses on assessing model performance under different validation strategies when observations are spatially clustered. We use a global dataset of leaf nitrogen concentration (leafN) distributed via the `leafnp_data` repository (Stocker & Tian, 2024). The data include site coordinates and environmental covariates, enabling both random and spatially structured cross-validation.
+
+```{r data, message=FALSE, warning=FALSE}
+# Load Data
+df <- readr::read_csv("https://raw.githubusercontent.com/geco-bern/leafnp_data/main/data/leafnp_tian_et_al.csv")
+
+common_species <- df |>
+  group_by(Species) |>
+  summarise(count = n()) |>
+  arrange(desc(count)) |>
+  slice(1:50) |>
+  pull(Species)
+
+dfs <- df |>
+  dplyr::select(leafN, lon, lat, elv, mat, map, ndep, mai, Species) |>
+  filter(Species %in% common_species)
+
+#for reproducibility
+set.seed(42)
+```
+
+## 1. Literature
+Based on the text of Ludwig et al. (2023)
+
+### 1.1. Difference between random and spatial cross-validation
+Random cross-validation ignores the spatial structure of the data. When observations are spatially clustered, nearby samples tend to have similar environmental conditions. Randomly assigning points to folds therefore leads to training and test sets that are geographically close. This inflates model performance because the model is evaluated on locations that are very similar to the training data.
+
+Spatial cross-validation groups samples into geographically separated clusters and uses these clusters as folds. This breaks the spatial autocorrelation between training and validation data. As a result, performance estimates are more realistic for spatial upscaling, where the model must predict in regions that are environmentally or geographically distinct from the calibration locations. Spatial CV typically yields lower accuracy, but the estimates are more relevant for prediction in new areas.
+
+### 1.2. Alternative distance measures for spatial upscaling
+Yes. Instead of defining distance in geographic space, distance can be computed in environmental space, using variables such as mean annual temperature, precipitation, nitrogen deposition, or radiation. Clustering points based on environmental similarity groups sites that share comparable ecological conditions, which is often more relevant for upscaling than geographic proximity. This approach reflects the structure of the predictor space rather than the spatial location.
+<br>
+
+## 2. Random cross-validation
+```{r random_cv, warning=FALSE, message=FALSE}
+# Model recipe:
+
+# - leafN as response
+
+# - elv, mat, map, ndep, mai, Species as predictors
+
+rf_recipe_random <- recipes::recipe(
+leafN ~ elv + mat + map + ndep + mai + Species,
+data = dfs
+) |>
+recipes::step_center(recipes::all_numeric(), -recipes::all_outcomes()) |>
+recipes::step_scale(recipes::all_numeric(), -recipes::all_outcomes()) |>
+recipes::step_dummy(recipes::all_nominal(), one_hot = TRUE) |>
+recipes::step_zv(recipes::all_predictors())
+
+# Random forest with 5-fold random cross-validation
+
+rf_random <- caret::train(
+rf_recipe_random,
+data   = dfs |> drop_na(),
+method = "ranger",
+trControl = caret::trainControl(
+method = "cv",
+number = 5,
+savePredictions = "final"
+),
+tuneGrid = expand.grid(
+.mtry          = 3,
+.splitrule     = "variance",
+.min.node.size = 12
+),
+metric = "RMSE",
+replace = FALSE,
+sample.fraction = 0.5,
+num.trees = 2000
+)
+
+rf_random
+
+random_cv_metrics <- rf_random$resample |>
+dplyr::summarise(
+rmse_mean = mean(RMSE),
+rmse_sd   = sd(RMSE),
+r2_mean   = mean(Rsquared),
+r2_sd     = sd(Rsquared)
+)
+
+random_cv_metrics
+```
+The random 5-fold cross-validation provides an estimate of model performance when training and validation samples are drawn at random from the same overall data distribution. For the random forest model, the mean RMSE across the five folds is `r signif(random_cv_metrics$rmse_mean, 3)` \( \text{g N g}^{-1}\text{ DM} \) (standard deviation `r signif(random_cv_metrics$rmse_sd, 3)`), and the mean \(R^2\) is `r signif(random_cv_metrics$r2_mean, 3)` (standard deviation `r signif(random_cv_metrics$r2_sd, 3)`). 
+
+These values indicate how well the model interpolates within the sampled environmental and geographical space. Because training and validation data are often geographically close, these metrics are expected to be optimistic compared to validation schemes that explicitly account for spatial structure.
 
 
-### 2.1.2 Alternative distance measures for spatial upscaling
-In Ludwig et al. (2023), the “distance” between training and prediction locations is expressed as a geographical (Euclidean) distance. This is useful to represent how far predictions are made from sampled regions. However, spatial upscaling with machine learning is based on relationships between the target variable and environmental covariates (e.g. climate, soil, radiation). From this perspective, an alternative and often more direct measure of distance is a distance in environmental (feature) space rather than in geographic space.:contentReference[oaicite:2]{index=2}
+## 3. Spatial cross-validation
 
-Such an environmental distance can be defined, for example, as the Euclidean or Mahalanobis distance between points in a multivariate space spanned by predictors such as mean annual temperature, precipitation, nitrogen deposition, and irradiance. Two locations can be geographically far apart but very similar in environmental space (e.g. two temperate, humid regions on different continents). In that case, the model can be expected to transfer reasonably well, even though the geographic distance is large. Conversely, nearby locations may be environmentally very different (e.g. valley vs. high mountain), which implies poor transferability despite small geographic distance. Using distances in environmental space is therefore closely aligned with the idea of environmental or feature-space cross-validation, where folds are defined by clusters in predictor space rather than by geographic position.:contentReference[oaicite:3]{index=3}
+### 3.1. What do you observe on the gobal map of observation sites? 
+The global distribution of sampling sites is highly uneven. There is strong clustering in Europe and eastern Asia, while Africa, South America, and Australia are very sparsely sampled. This implies that large parts of the global environmental space are poorly represented in the training data. For spatial upscaling, predictions in these regions rely largely on extrapolation, and performance metrics from random CV are likely to overestimate the true predictive skill.
+
+### 3.2. Perform a spatial cross-validation. Plot points on a global map, showing the five clusters with distinct colors.
+```{r spatial_cv, echo=FALSE, message=FALSE, warning=FALSE, fig.width=7, fig.height=4, fig.align='center'}
+# 5 clusters in geographic space (longitude, latitude)
+dfs$geo_cluster <- as.factor(
+kmeans(dfs[, c("lon", "lat")], centers = 5)$cluster
+)
+
+# Coastline for background map
+
+coast <- rnaturalearth::ne_coastline(scale = 110, returnclass = "sf")
+
+geo_colors <- c("red3", "darkgoldenrod1", "#228B22", "steelblue2", "#8B008B")
+
+ggplot() +
+geom_sf(data = coast, colour = "black", size = 0.2) +
+coord_sf(ylim = c(-60, 80), expand = FALSE) +
+geom_point(
+data = dfs,
+aes(x = lon, y = lat, colour = geo_cluster),
+size = 0.6
+) +
+scale_colour_manual(values = geo_colors) +
+labs(
+x = "",
+y = "",
+title = "Geographic clusters (lon–lat space)"
+) +
+theme_classic() +
+theme(legend.position = "bottom")
+```
+
+### 3.3. Plot the distribution of leaf N by cluster.
+
+```{r plot_leaf_distribution_spatial, echo=FALSE, message=FALSE, warning=FALSE, fig.width=11, fig.height=4, fig.align='center'}
+plot_geo_box <- dfs |>
+ggplot(aes(x = geo_cluster, y = leafN, fill = geo_cluster)) +
+geom_boxplot() +
+scale_fill_manual(values = geo_colors) +
+theme_bw() +
+theme(
+legend.position = "none",
+plot.title = element_text(size = 11)
+) +
+ggtitle("Leaf N distribution by geographic cluster") +
+xlab("Geographic cluster")
+
+plot_geo_hist <- dfs %>%
+  ggplot(aes(x = leafN, fill = geo_cluster)) +
+  geom_histogram(colour = "black") +
+  facet_wrap(~ geo_cluster) +
+  scale_fill_manual(values = geo_colors) +
+  theme_bw() +
+  theme(legend.position = "none") +
+  ggtitle("Leaf N histogram by geographic cluster")
+
+grid.arrange(plot_geo_box, plot_geo_hist, ncol = 2)
+```
+
+### 3.4. Split your data into five folds that correspond to the geographical clusters identified by in (2.), and fit a random forest model performing a 5-fold cross-validation with the clusters as folds. Report the RMSE and the  determined on each of the five folds.
+
+```{r randomforest_spatial, message=FALSE, warning=FALSE}
+# Create train/test indices from a cluster factor
+
+create_cluster_folds <- function(cluster_factor) {
+levels_vec <- levels(cluster_factor)
+
+folds_train <- purrr::map(
+seq_along(levels_vec),
+~ which(cluster_factor != levels_vec[.x])
+)
+
+folds_test <- purrr::map(
+seq_along(levels_vec),
+~ which(cluster_factor == levels_vec[.x])
+)
+
+list(train = folds_train, test = folds_test)
+}
+
+# Fit RF model on one fold pair and return RMSE + R²
+
+fit_rf_by_fold <- function(df, idx_train, idx_val) {
+
+# Exclude response and cluster columns from predictors
+
+predictor_mask <- !(names(df) %in% c("leafN", "geo_cluster", "env_cluster"))
+
+x_train <- df[idx_train, predictor_mask, drop = FALSE]
+x_val   <- df[idx_val, predictor_mask, drop = FALSE]
+
+y_train <- df$leafN[idx_train]
+y_val   <- df$leafN[idx_val]
+
+rf_model <- ranger::ranger(
+x = x_train,
+y = y_train,
+num.trees = 2000,
+mtry = 3,
+min.node.size = 12,
+importance = "none"
+)
+
+pred <- predict(rf_model, data = x_val)$predictions
+
+rsq  <- summary(lm(pred ~ y_val))$r.squared
+rmse <- sqrt(mean((y_val - pred)^2))
+
+tibble(rsq = rsq, rmse = rmse)
+}
+
+# 5-fold spatial cross-validation based on geographic clusters
+
+geo_folds <- create_cluster_folds(dfs$geo_cluster)
+
+cv_results_geo <- purrr::map2_dfr(
+geo_folds$train,
+geo_folds$test,
+~ fit_rf_by_fold(dfs, .x, .y)
+) |>
+mutate(test_fold = 1:5)
+
+cv_results_geo
+```
+
+### 3.5. Compare the results of the spatial cross-validation to the results of the random cross-validation and discuss reasons for why you observe a difference in the cross-validation metrics.
+Spatial cross-validation performs significantly worse than random cross-validation, with higher RMSE and lower , and there are sizeable differences between geographic folds. Folds with fewer training points tend to have the weakest performance. These results illustrate how random CV overestimates predictive skill when data are spatially clustered, while spatial CV provides more conservative and more realistic estimates for spatial upscaling.
+
+<br>
+
+## 4. Environmental Cross Validation
+
+### 4.1. Environmental clustering (MAT–MAP) and global map
+
+```{r kmeans_environmental,  message=FALSE, warning=FALSE}
+# 5 clusters in environmental space (mean annual temperature and precipitation)
+
+dfs$env_cluster <- as.factor(
+kmeans(dfs[, c("mat", "map")], centers = 5)$cluster
+)
+```
+
+
+```{r env_cvs1, echo=FALSE, message=FALSE, warning=FALSE, warning=FALSE, fig.width=7, fig.height=4, fig.align='center'}
+ggplot() +
+geom_sf(data = coast, colour = "black", size = 0.2) +
+coord_sf(ylim = c(-60, 80), expand = FALSE) +
+geom_point(
+data = dfs,
+aes(x = lon, y = lat, colour = env_cluster),
+size = 0.6
+) +
+scale_colour_manual(values = geo_colors) +
+labs(
+x = "",
+y = "",
+title = "Environmental clusters (MAT–MAP space)"
+) +
+theme_classic() +
+theme(legend.position = "bottom")
+```
+
+### 4.2. Distribution of leaf N by environmental cluster
+```{r env_cvs2,, echo=FALSE, message=FALSE, warning=FALSE, fig.width=11, fig.height=4, fig.align='center'}
+plot_env_box <- dfs %>%
+ggplot(aes(x = env_cluster, y = leafN, fill = env_cluster)) +
+geom_boxplot() +
+scale_fill_manual(values = geo_colors) +
+theme_bw() +
+theme(
+legend.position = "none",
+plot.title = element_text(size = 11)
+) +
+ggtitle("Leaf N distribution by environmental cluster") +
+xlab("Environmental cluster")
+
+plot_env_hist <- dfs %>%
+ggplot(aes(x = leafN, fill = env_cluster)) +
+geom_histogram(colour = "black") +
+facet_wrap(~ env_cluster) +
+scale_fill_manual(values = geo_colors) +
+theme_bw() +
+theme(legend.position = "none") +
+ggtitle("Leaf N histogram by \nenvironmental cluster")
+
+grid.arrange(plot_env_box, plot_env_hist, ncol = 2)
+
+```
+
+### 4.3. Random Forest with 5-fold environmental CV
+```{r env_cvs3, echo=FALSE, message=FALSE, warning=FALSE, fig.width=11, fig.height=4, fig.align='center'}
+env_folds <- create_cluster_folds(dfs$env_cluster)
+
+cv_results_env <- purrr::map2_dfr(
+env_folds$train,
+env_folds$test,
+~ fit_rf_by_fold(dfs, .x, .y)
+) |>
+mutate(test_fold = 1:5)
+
+cv_results_env
+```
+
+Environmental spatial cross-validation performs considerably better than geographic spatial cross-validation but worse than random cross-validation. The variation in RMSE and  between environmental folds is relatively small, even though the fold sizes differ. This suggests that clustering in environmental space leads to folds that are more homogeneous in terms of predictor variables, and that environmental similarity is more relevant for leaf nitrogen prediction than geographic proximity alone. Environmental CV therefore provides a useful compromise: it avoids the strongly over-optimistic performance estimates from random CV, while remaining more stable than purely geographic CV.
+<br>
+
+### 5. Conclusion  
+Random cross-validation gives overly optimistic model performance because training and validation sites are often geographically close. Spatial cross-validation shows much lower accuracy, revealing that the model does not transfer well to distant or poorly sampled regions. Environmental cross-validation performs better and more consistently than geographic CV, indicating that environmental similarity is more relevant than spatial proximity for predicting leaf nitrogen. Overall, spatially explicit validation is essential for realistically assessing model performance in upscaling applications.
+<br>
+
+### References  
+  
+Ludwig, Marvin, Alvaro Moreno-Martinez, Norbert Hölzel, Edzer Pebesma, and Hanna Meyer. (2023). Assessing and Improving the Transferability of Current Global Spatial Prediction Models. *Global Ecology and Biogeography 32*(3): 356–68. https://doi.org/10.1111/geb.13635.  
+
+Stocker, B. D., & Tian, D. (2024). *geco-bern/leafnp_data: v1.0: Initial release* [Data set]. Zenodo. https://doi.org/10.5281/zenodo.11071944 

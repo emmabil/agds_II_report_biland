@@ -12,11 +12,9 @@ rm(list=ls())
 
 ```{r library, message=FALSE, warning=FALSE}
 # Libraries
-library(phenocamr);library(geodata);library(terra);library(dplyr);library(here);library(ggplot2);library(patchwork);library(GenSA);library(BayesianTools);library(daymetr);library(raster);library(MODISTools);library(leaflet);library(tidyterra);library(patchwork);library(keyring);library(appeears);library(sf); library(geosphere)
+library(phenocamr);library(terra);library(dplyr);library(here);library(ggplot2);library(GenSA);library(MODISTools);library(geosphere)
 ```
-
 <br>
-
 ### **Introduction**
 Plant phenology is tightly controlled by temperature, radiation and winter dormancy processes. Under current climate warming, the timing of leaf emergence, flowering and senescence is shifting across many ecosystems, with consequences for carbon uptake, species interactions and ecosystem functioning (Morisette et al., 2009; Richardson et al., 2013). Phenological indicators are therefore widely used to assess ecological responses to climate variability and change.
 
@@ -214,7 +212,7 @@ The linear GDD formulation assumes that all heat above the threshold contributes
 **(3) triangular temperature response model**  
 The triangular temperature response model assumes that temperature contributes to plant development only within a biologically meaningful range. Forcing increases linearly from a minimum temperature (Tmin) to an optimum (Topt), and then declines toward a maximum temperature (Tmax), reflecting how growth efficiency peaks at intermediate conditions. This non-linear formulation aims to represent physiological temperature responses more realistically than the simple linear GDD model.
 
-**(4) Photoperiod (bonus)**
+**(4) Photoperiod (bonus)**  
 Photoperiod is a key regulator of dormancy status in temperate deciduous trees (Maurya & Bhalerao, 2017). While temperature drives spring development, trees do not respond to warmth until a photoperiodic threshold is reached. Integrating a daylength-based gating mechanism into a GDD model is therefore biologically justified.
 But at this latitude, reasonable photoperiod thresholds are reached well before the accumulation of sufficient GDD, so daylength has little constraining effect in the simple photo-thermal formulation tested here.
 
@@ -577,6 +575,8 @@ The comparison with MODIS MCD12Q2 shows systematic offsets and spatial inconsist
 Chuine, I. (2000). A unified model for budburst of trees. *Journal of Theoretical Biology, 207*(3), 337–347. https://doi.org/10.1006/jtbi.2000.2178
 
 Hufkens, K., Friedl, M. A., Sonnentag, O., Braswell, B. H., Milliman, T., & Richardson, A. D. (2012). Linking near-surface and satellite remote sensing measurements of deciduous broadleaf forest phenology. *Remote Sensing of Environment, 117*, 307–321. https://doi.org/10.1016/j.rse.2011.10.006
+
+Maurya, J. P., & Bhalerao, R. P. (2017). Photoperiod- and temperature-mediated control of growth cessation and dormancy in trees: A molecular perspective. *Annals of Botany, 120*(3), 351–360. https://doi.org/10.1093/aob/mcx061
 
 Morisette, J. T., Richardson, A. D., Knapp, A. K., Fisher, J. I., Graham, E. A., Abatzoglou, J., ... Liang, L. (2009). Tracking the rhythm of the seasons in the face of global change: Phenological research in the 21st century. *Frontiers in Ecology and the Environment, 7*(5), 253–260. https://doi.org/10.1890/070217
 
