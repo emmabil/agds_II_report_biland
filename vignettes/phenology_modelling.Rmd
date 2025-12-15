@@ -1,10 +1,11 @@
 ---
-title: "Report Exercise: Phenology Modelling"
+title: "Phenology Modelling"
+subtitle: "Report Exercise"
 author: "Emma Biland"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
+```{r setup, include=FALSE, echo=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 rm(list=ls())
 ```
@@ -17,15 +18,13 @@ library(phenocamr);library(geodata);library(terra);library(dplyr);library(here);
 <br>
 
 ### **Introduction**
-Phenology responds closely to seasonal and interannual climate variability. Under ongoing climate change, shifts in biological life cycles are increasingly observed, with implications for ecosystem stability and biodiversity. Assessing these changes requires robust approaches to quantify temperature-driven seasonal development.
+Plant phenology is tightly controlled by temperature, radiation and winter dormancy processes. Under current climate warming, the timing of leaf emergence, flowering and senescence is shifting across many ecosystems, with consequences for carbon uptake, species interactions and ecosystem functioning (Morisette et al., 2009; Richardson et al., 2013). Phenological indicators are therefore widely used to assess ecological responses to climate variability and change.
 
-This exercise focuses on modelling growing degree days (GDD), a common measure of spring temperature accumulation until leaf-out. The workflow follows the methods presented in ["Handful of Pixels" chapter 6](https://geco-bern.github.io/handfull_of_pixels/phenology_modelling.html). PhenoCam observations were used as the primary data source, accessed through the [{phenocamr}](https://bluegreen-labs.github.io/phenocamr/) [R package](https://bluegreen-labs.github.io/phenocamr/), using the Harvard site in the north-eastern United States as an example. Data acquisition and preparation follow the procedures described in Section 6.
+This exercise follows Chapter 6 of ["Handful of Pixels" chapter 6](https://geco-bern.github.io/handfull_of_pixels/phenology_modelling.html) and focuses on modelling spring leaf-out at the Harvard Forest PhenoCam site using temperature-based growing degree days (GDD). Temperature and phenology observations were downloaded using the [{phenocamr}](https://bluegreen-labs.github.io/phenocamr/) [R package](https://bluegreen-labs.github.io/phenocamr/), and a baseline GDD model was calibrated against PhenoCam-derived transition dates. We then explored how model structure could be improved and implemented one alternative formulation. Finally, we compared our model predictions with the MODIS MCD12Q2 phenology product to assess consistency between ground-based and satellite-derived phenology at regional scale.
 
-The GDD model and its optimisation procedure are also based on Section 6. Model calibration yielded estimates for two key parameters: a temperature threshold of  2.81 °C and an accumulation period of 228.28 days. These parameters were then used to predict growing degree days for the period MISSING DATAAAAA!!!!!!!!!!!!!!!!!!.
+##### **Data download and preprocessing (Harvard PhenoCam + DAYMET)**
 
-##### ***Data download and preprocessing (Harvard PhenoCam + DAYMET)***
-
-```{r data_harvard,  message=FALSE}
+```{r data_harvard,  message=FALSE, warning=FALSE}
 # Loading and processing data from harvard
 phenocamr::download_phenocam(
   site = "harvard$",
@@ -51,8 +50,6 @@ harvard_phenology <- readr::read_csv(
     direction == "rising",
     gcc_value == "gcc_90"
   )
-
-
 
 # return mean daily temperature as well
 # as formal dates (for plotting)
@@ -95,7 +92,7 @@ harvard_phenology <- harvard_phenology |>
     doy = as.numeric(format(as.Date(transition_25),"%j")),
     year = as.numeric(format(as.Date(transition_25),"%Y"))
   ) |>
-  select(
+  dplyr::select(
     year,
     doy,
     transition_25,
@@ -103,12 +100,12 @@ harvard_phenology <- harvard_phenology |>
     )
 ```
 
-``` {r algo}
+``` {r algo,  message=FALSE, warning=FALSE}
 source("../functions/phenology_algo.R")
 ```
 
-##### ***Baseline GDD model***
-```{r model_optimisation, message=FALSE}
+##### **Baseline GDD model**
+```{r model_optimisation, message=FALSE, warning=FALSE}
 # starting model parameters
 par = c(0, 130)
 
@@ -184,7 +181,7 @@ ggplot(validation) +
   )
 ```
 
-``` {r validation}
+``` {r validation,  message=FALSE, warning=FALSE}
 model_lm <- lm(prediction ~ doy, data = validation)
 summary(model_lm)
 ```
@@ -202,9 +199,9 @@ The regression between observed DOY and model predictions yields:
 
 The model tends to predict early years too late and late years too early. This behaviour is consistent with the limitations of linear GDD models, which lack sensitivity to winter conditions and assume uniform temperature effectiveness throughout spring.
 
-### ***Exercise***
-#### ***1. Model optimization***
-### Model improvements
+### **Exercise**
+### 1. Model optimization
+#### Model improvements
 
 The simple GDD model used in Chapter 6 provides a useful first approximation of spring leaf-out, but it has well-known limitations when applied beyond a single site. Three improvements can be made to increase robustness and make the model suitable for regional applications.
 
@@ -214,18 +211,18 @@ Deciduous broadleaf species require winter chilling to break dormancy and become
 **(2) Use a non-linear temperature response**  
 The linear GDD formulation assumes that all heat above the threshold contributes equally to leaf development. In reality, heat accumulation saturates at high temperatures and becomes inefficient at low temperatures. Non-linear functions, such as triangular or sigmoid responses, reduce unrealistically early or late predictions.
 
-**(3) Allow spatially variable model parameters**  
-Parameters calibrated at a single site (Harvard Forest) cannot be directly transferred to regional scales, where species composition, elevation, land cover, and microclimate vary substantially. Parameters can be estimated per pixel or modelled as functions of environmental predictors to improve spatial realism.
+**(3) triangular temperature response model**  
+The triangular temperature response model assumes that temperature contributes to plant development only within a biologically meaningful range. Forcing increases linearly from a minimum temperature (Tmin) to an optimum (Topt), and then declines toward a maximum temperature (Tmax), reflecting how growth efficiency peaks at intermediate conditions. This non-linear formulation aims to represent physiological temperature responses more realistically than the simple linear GDD model.
 
 **(4) Photoperiod (bonus)**
 Photoperiod is a key regulator of dormancy status in temperate deciduous trees (Maurya & Bhalerao, 2017). While temperature drives spring development, trees do not respond to warmth until a photoperiodic threshold is reached. Integrating a daylength-based gating mechanism into a GDD model is therefore biologically justified.
 But at this latitude, reasonable photoperiod thresholds are reached well before the accumulation of sufficient GDD, so daylength has little constraining effect in the simple photo-thermal formulation tested here.
 
-In the following section, the first improvement (chilling requirement + GDD accumulation) is implemented and compared with the baseline model.
+In this exercise, we implemented the **triangular temperature response model** and compared its behaviour with the baseline GDD formulation.
 
 
-#### ***2. Implementation of optimization***
-```{r optimization}
+### 2. Implementation of optimization
+```{r optimization,  message=FALSE, warning=FALSE}
 # data list for optimisation (same structure)
 data_tri <- list(
   drivers    = harvard_temp,
@@ -295,10 +292,18 @@ ggplot(validation_tri) +
     legend.position = "none"
   )
 ```
-#### ***4. Spatial scaling***
-Spatial scaling du modèle triangulaire (DAYMET → raster de DOY)
-```{r spatialscaling}
 
+**Triangular temperature-response model**
+
+The triangular GDD model assumes that thermal forcing increases linearly from a minimum temperature to an optimum, and declines at higher temperatures. This structure follows biological evidence that growth rates peak at intermediate temperatures (Chuine, 2000).
+
+Model calibration yielded a minimum temperature of 6.3°C, an optimum of 18.9°C and a maximum of 33.1°C (values from `optim_par_tri`), with a forcing requirement of Hcrit = 80 units. Although conceptually more realistic, the triangular model performed worse than the simple GDD model. The regression between observed and predicted DOY showed a lower slope (0.66), reduced explained variance (R² = 0.21) and larger residuals (σ = 7.0 days). These results indicate that the non-linear thermal response does not improve model skill at Harvard Forest, likely because early-spring temperatures rarely span a sufficiently wide range to identify Tmin, Topt and Tmax.
+
+
+### 3. Comparison
+#### 3.1. Spatial scaling
+Spatial scaling du modèle triangulaire (DAYMET → raster de DOY)
+```{r spatialscaling, message=FALSE, warning=FALSE}
 # Download DAYMET tile via GitHub fallback (comme dans le cours)
 
 local_file <- tempfile(fileext = ".nc")
@@ -328,7 +333,6 @@ mean_layer,
 )
 
 ma_nh_temp
-
 # Apply baseline GDD model to raster stack
 
 predicted_phenology_gdd <- terra::app(
@@ -346,8 +350,7 @@ predicted_phenology_gdd
 
 predicted_phenology_tri <- terra::app(
 ma_nh_temp,
-fun = gdd_tri_model,
-par = optim_par_tri
+fun = function(x) gdd_tri_model(x, par = optim_par_tri)
 )
 
 predicted_phenology_tri
@@ -360,9 +363,8 @@ par(mfrow = c(1, 1))
 
 ```
 
-#### ***5.MODIS MCD12Q2 et comparaison spatiale***
-```{r MODIS_time_series_at_Harvard}
-# --- MODIS MCD12Q2 phenology over MA–NH region (2012) ---
+#### 3.2. MODIS MCD12Q2 et comparaison spatiale
+```{r MODIS_time_series_at_Harvard,  message=FALSE, warning=FALSE}
 # --- MODIS MCD12Q2 phenology over MA–NH region (2012) ---
 
 modis_ma_nh <- MODISTools::mt_subset(
@@ -376,7 +378,7 @@ km_lr     = 100,         # ~100 km around the point
 km_ab     = 100,
 site_name = "ma_nh_2012",
 internal  = TRUE,
-progress  = TRUE
+progress  = FALSE
 )
 
 # Convert MODIS values from "days since 1970-01-01" to DOY,
@@ -470,89 +472,113 @@ plot(diff_map,               main = "MODIS – model (DOY)")
 par(mfrow = c(1, 1))
 
 ```
+##### **Spatial comparison with MODIS MCD12Q2**
 
-### Spatial comparison with the MODIS MCD12Q2 product
+To evaluate the model at regional scale, we compared leaf-out dates predicted by the triangular GDD model for 2012 with MODIS MCD12Q2 Greenup_DOY. MODIS represents the first sustained increase in canopy greenness detected from satellite reflectance, while the model estimates physiological leaf-out based solely on temperature forcing.
 
-inser text!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+The two maps exhibit distinct spatial patterns. The model shows smooth gradients driven by elevation and latitude, whereas MODIS reveals finer-scale heterogeneity linked to land cover, forest composition and local snow persistence. The difference map (MODIS – model) indicates that MODIS green-up dates are generally later than model predictions, with a mean offset of ~49 days and spatial variability of ~8 days.
 
-##### ***5.2 MODIS spatial subset (around Boston / MA–NH region)***
-```{r MODIS_spatial_subset}
-# Region approximating the DAYMET tile (centred on ~43N, -71W)
+##### **Why MODIS and model patterns differ ?**
 
-modis_ma_nh <- mt_subset(
-product  = "MCD12Q2",
-band     = "Greenup.Num_Modes_01",
-lat      = 43,
-lon      = -71,
-start    = "2012-01-01",
-end      = "2012-12-31",
-km_lr    = 100,   # ~100 km around the point
-km_ab    = 100,
-site_name = "ma_nh_2012",
-internal  = TRUE,
-progress  = TRUE
+The spatial mismatch arises because the model and MODIS measure different aspects of spring phenology. The GDD model predicts the onset of leaf development based on near-surface temperature, producing smooth gradients that reflect climatic forcing. In contrast, MODIS Greenup_DOY captures canopy-level greening, which depends on species composition, evergreen vs deciduous cover, understory vegetation and radiometric effects. Snow cover, cloud contamination and mixed-pixel reflectance further delay or blur the satellite-derived greenness signal.
+
+Consequently, MODIS detects a later and more heterogeneous green-up than the model, especially in evergreen-dominated or high-elevation areas. This divergence is consistent with previous studies reporting systematic differences between temperature-based phenology models and satellite greenness products (e.g. Hufkens et al., 2012; Richardson et al., 2013).
+
+### 4. Focus on year 2010
+
+```{r comparison_point_2010, message=FALSE, warning=FALSE}
+modis_harvard <- MODISTools::mt_subset(
+  product   = "MCD12Q2",
+  band      = "Greenup.Num_Modes_01",
+  lat       = harvard_lat,
+  lon       = harvard_lon,
+  start     = paste0(min(harvard_phenology$year), "-01-01"),
+  end       = paste0(max(harvard_phenology$year), "-12-31"),
+  km_lr     = 0,       
+  km_ab     = 0,
+  site_name = "harvard_ts",
+  internal  = TRUE,
+  progress  = FALSE
 )
 
-head(modis_ma_nh)
+modis_harvard_ts <- modis_harvard |>
+  dplyr::mutate(
+    value = ifelse(value > 32656, NA, value),            
+    date  = as.Date("1970-01-01") + value,               
+    year  = as.numeric(format(date, "%Y")),
+    doy   = as.numeric(format(date, "%j"))
+  ) |>
+  dplyr::group_by(year) |>
+  dplyr::summarise(
+    greenup_doy = mean(doy, na.rm = TRUE)
+  ) |>
+  dplyr::filter(!is.na(greenup_doy))
 
-# Convert tidy MODISTools data frame to terra SpatRaster
+modis_harvard_ts
 
-modis_ma_nh_rast <- mt_to_terra(
-df        = modis_ma_nh,
-reproject = TRUE    # to lat/lon
-)
+comparison_point <- validation |>
+  dplyr::left_join(modis_harvard_ts, by = "year")
 
-modis_ma_nh_rast
 
-# Align MODIS raster to DAYMET-based prediction grid
-
-modis_ma_nh_crop <- terra::crop(modis_ma_nh_rast, predicted_phenology_gdd)
-
-modis_resampled <- terra::resample(
-modis_ma_nh_crop,
-predicted_phenology_gdd,
-method = "bilinear"
-)
-
-modis_resampled
-
-par(mfrow = c(1, 3))
-plot(predicted_phenology_gdd, main = "GDD model DOY")
-plot(modis_resampled, main = "MODIS Greenup_DOY")
-plot(modis_resampled - predicted_phenology_gdd,
-main = "MODIS - model (DOY)")
-par(mfrow = c(1, 1))
-
-# Simple summary statistics of the difference
-
-diff_map <- modis_resampled - predicted_phenology_gdd
-
-terra::global(diff_map, fun = "mean", na.rm = TRUE)
-terra::global(diff_map, fun = "sd",   na.rm = TRUE)
-
-```
-
-### Why modelled and MODIS patterns differ
-
-inser text!!!!!!!!!!!!!!!!!!!!!!
-
-##### ***Focus on year 2010 (special year) – code support***
-```{r year_2010}
 comparison_point_long <- comparison_point |>
-dplyr::select(year, doy, prediction, greenup_doy) |>
-tidyr::pivot_longer(
-cols = c(doy, prediction, greenup_doy),
-names_to = "source",
-values_to = "DOY"
-)
+  dplyr::select(year, doy, prediction, greenup_doy) |>
+  tidyr::pivot_longer(
+    cols      = c(doy, prediction, greenup_doy),
+    names_to  = "source",
+    values_to = "DOY"
+  )
 
 ggplot(comparison_point_long, aes(year, DOY, colour = source)) +
-geom_line() +
-geom_point(data = subset(comparison_point_long, year == 2010),
-size = 3) +
-theme_bw()
+  geom_line() +
+  geom_point() +
+  geom_point(
+    data = subset(comparison_point_long, year == 2010),
+    size = 3
+  ) +
+  scale_colour_manual(
+    values = c("doy" = "black",
+               "prediction" = "red",
+               "greenup_doy" = "blue"),
+    labels = c("doy"         = "PhenoCam",
+               "prediction"  = "GDD model",
+               "greenup_doy" = "MODIS Greenup")
+  ) +
+  labs(
+    x = "Year",
+    y = "Leaf-out / green-up DOY",
+    colour = NULL
+  ) +
+  theme_bw()
+
+anomalies_2010 <- comparison_point_long |>
+  dplyr::group_by(source) |>
+  dplyr::mutate(
+    DOY_anom = DOY - mean(DOY, na.rm = TRUE)
+  ) |>
+  dplyr::filter(year == 2010)
+
+anomalies_2010
 
 ```
+##### **2010 as a special year in the northeastern United States**
 
-###### 2010 as a “special” year in the northeastern United States
-inser teeext!!!!!!!!!!!!!!!!
+The year 2010 was anomalously warm across the northeastern United States due to a strong positive phase of the North Atlantic Oscillation (NAO), reduced cold-air outbreaks and early snowmelt. Winter and early-spring temperatures were several degrees above average, producing extremely early GDD accumulation and advancing physiological leaf-out.
+
+At the Harvard Forest pixel, PhenoCam observations, the GDD model and MODIS all indicate unusually early spring phenology in 2010, although the magnitude of the advance differs. The model shows the strongest response, consistent with its direct link to temperature forcing. MODIS displays a weaker shift because canopy greenness lags behind bud development and is influenced by snow and evergreen cover. These differences illustrate how climatic anomalies amplify discrepancies between process-based and satellite-derived phenology indicators.
+
+### 5. Conclusion
+
+This exercise demonstrates how simple temperature-based phenology models can be calibrated using ground observations and applied across regions using gridded climate data. Although conceptually straightforward, the baseline GDD model underestimates interannual variability and cannot capture spatial heterogeneity observed by MODIS. Implementing a more realistic triangular thermal response did not improve performance, highlighting limitations imposed by data availability, species diversity and winter processes such as chilling.
+
+The comparison with MODIS MCD12Q2 shows systematic offsets and spatial inconsistencies rooted in conceptual differences between satellite greenness and physiological leaf-out. The anomalous spring of 2010 further emphasises how climatic extremes can diverge model-based and satellite-based phenology. Future work could integrate chilling requirements, photoperiod sensitivity or species-specific parameters to better represent the complexity of temperate forest phenology.
+
+### References
+
+Chuine, I. (2000). A unified model for budburst of trees. *Journal of Theoretical Biology, 207*(3), 337–347. https://doi.org/10.1006/jtbi.2000.2178
+
+Hufkens, K., Friedl, M. A., Sonnentag, O., Braswell, B. H., Milliman, T., & Richardson, A. D. (2012). Linking near-surface and satellite remote sensing measurements of deciduous broadleaf forest phenology. *Remote Sensing of Environment, 117*, 307–321. https://doi.org/10.1016/j.rse.2011.10.006
+
+Morisette, J. T., Richardson, A. D., Knapp, A. K., Fisher, J. I., Graham, E. A., Abatzoglou, J., ... Liang, L. (2009). Tracking the rhythm of the seasons in the face of global change: Phenological research in the 21st century. *Frontiers in Ecology and the Environment, 7*(5), 253–260. https://doi.org/10.1890/070217
+
+Richardson, A. D., Hufkens, K., Milliman, T., & Aubrecht, D. M. (2013). Evaluating vegetation phenology using time-lapse cameras: Bridging the gap to remote sensing. *Remote Sensing of Environment, 144*, 85–95. https://doi.org/10.1016/j.rse.2013.01.028
+
