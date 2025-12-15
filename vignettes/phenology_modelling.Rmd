@@ -12,7 +12,7 @@ rm(list=ls())
 
 ```{r library, message=FALSE, warning=FALSE}
 # Libraries
-library(phenocamr);library(terra);library(dplyr);library(here);library(ggplot2);library(GenSA);library(MODISTools);library(geosphere)
+library(phenocamr);library(terra);library(dplyr);library(here);library(ggplot2);library(GenSA);library(MODISTools);library(geosphere);library(readr);library(tidyr)
 ```
 <br>
 ### **Introduction**
@@ -24,7 +24,7 @@ This exercise follows Chapter 6 of ["Handful of Pixels" chapter 6](https://geco-
 
 ```{r data_harvard,  message=FALSE, warning=FALSE}
 # Loading and processing data from harvard
-phenocamr::download_phenocam(
+download_phenocam(
   site = "harvard$",
   veg_type = "DB",
   roi_id = "1000",
@@ -33,18 +33,18 @@ phenocamr::download_phenocam(
   trim = 2022,
   out_dir = tempdir())
 
-harvard_phenocam_data <- readr::read_csv(
+harvard_phenocam_data <- read_csv(
   file.path(tempdir(), "harvard_DB_1000_3day.csv"), 
   comment = "#")
 
-harvard_phenology <- readr::read_csv(
+harvard_phenology <- read_csv(
   file.path(
     tempdir(),
     "harvard_DB_1000_3day_transition_dates.csv"
   ),
   comment = "#"
 ) |>
-  dplyr::filter(
+  filter(
     direction == "rising",
     gcc_value == "gcc_90"
   )
@@ -53,14 +53,14 @@ harvard_phenology <- readr::read_csv(
 # as formal dates (for plotting)
 harvard_temp <- harvard_phenocam_data |>
   group_by(year) |>
-  dplyr::mutate(
+  mutate(
     tmean = (tmax..deg.c. + tmin..deg.c.)/2
   ) |> 
-  dplyr::mutate(
+  mutate(
     date = as.Date(date),
     gdd = cumsum(ifelse(tmean >= 5, tmean - 5, 0))
   ) |>
-  dplyr::select(
+  select(
     date,
     year,
     tmean,
@@ -74,9 +74,9 @@ harvard_lat <- 42.5378
 harvard_lon <- -72.1715
 
 harvard_temp <- harvard_temp |>
-  dplyr::mutate(
+  mutate(
     doy = as.numeric(format(date, "%j")),
-    photoperiod = geosphere::daylength(
+    photoperiod = daylength(
       lat = harvard_lat * pi/180,
       doy = doy
     )   # déjà en heures
@@ -90,7 +90,7 @@ harvard_phenology <- harvard_phenology |>
     doy = as.numeric(format(as.Date(transition_25),"%j")),
     year = as.numeric(format(as.Date(transition_25),"%Y"))
   ) |>
-  dplyr::select(
+  select(
     year,
     doy,
     transition_25,
@@ -120,7 +120,7 @@ data <- list(
   )
 
 # optimize the model parameters
-optim_par = GenSA::GenSA(
+optim_par = GenSA(
  par = par,
  fn = rmse_gdd,
  lower = lower,
@@ -312,9 +312,9 @@ download.file(
   mode = "wb"
 )
 
-r1 <- terra::rast(local_file)
+r1 <- rast(local_file)
 # Assign the correct CRS, e.g. WGS84 (EPSG:4326)
-terra::crs(r1) <- "epsg:4326"
+crs(r1) <- "epsg:4326"
 
 # Calculate the daily mean values based on 'tmin' and 'tmax'
 mean_layer <- terra::mean(r1["tmax"], 
@@ -333,7 +333,7 @@ mean_layer,
 ma_nh_temp
 # Apply baseline GDD model to raster stack
 
-predicted_phenology_gdd <- terra::app(
+predicted_phenology_gdd <- app(
 ma_nh_temp,
 fun = gdd_model,
 par = optim_par
@@ -346,7 +346,7 @@ predicted_phenology_gdd
 
 # (uses your gdd_tri_model() and optim_par_tri defined earlier)
 
-predicted_phenology_tri <- terra::app(
+predicted_phenology_tri <- app(
 ma_nh_temp,
 fun = function(x) gdd_tri_model(x, par = optim_par_tri)
 )
@@ -365,7 +365,7 @@ par(mfrow = c(1, 1))
 ```{r MODIS_time_series_at_Harvard,  message=FALSE, warning=FALSE}
 # --- MODIS MCD12Q2 phenology over MA–NH region (2012) ---
 
-modis_ma_nh <- MODISTools::mt_subset(
+modis_ma_nh <- mt_subset(
 product   = "MCD12Q2",
 band      = "Greenup.Num_Modes_01",
 lat       = 43,
@@ -384,7 +384,7 @@ progress  = FALSE
 # remove fill values and clearly unrealistic dates
 
 modis_ma_nh <- modis_ma_nh |>
-dplyr::mutate(
+mutate(
 value = ifelse(value > 32656, NA, value),                                   # fill values
 value = as.numeric(format(as.Date("1970-01-01") + value, "%j")),            # -> DOY
 value = ifelse(value < 200, value, NA_real_)                                # keep spring green-up only
@@ -392,7 +392,7 @@ value = ifelse(value < 200, value, NA_real_)                                # ke
 
 # Tidy data frame -> SpatRaster
 
-modis_ma_nh_rast <- MODISTools::mt_to_terra(
+modis_ma_nh_rast <- mt_to_terra(
 df        = modis_ma_nh,
 reproject = TRUE   # to lon/lat
 )
@@ -403,14 +403,14 @@ modis_ma_nh_rast
 
 # Crop MODIS to the same extent as the model prediction
 
-modis_ma_nh_crop <- terra::crop(
+modis_ma_nh_crop <- crop(
 modis_ma_nh_rast,
 predicted_phenology_tri
 )
 
 # Resample MODIS to the model resolution
 
-modis_resampled <- terra::resample(
+modis_resampled <- resample(
 modis_ma_nh_crop,
 predicted_phenology_tri,
 method = "bilinear"
@@ -422,8 +422,8 @@ diff_map <- modis_resampled - predicted_phenology_tri
 
 # Simple sanity check statistics (optional)
 
-terra::global(diff_map, fun = "mean", na.rm = TRUE)
-terra::global(diff_map, fun = "sd",   na.rm = TRUE)
+global(diff_map, fun = "mean", na.rm = TRUE)
+global(diff_map, fun = "sd",   na.rm = TRUE)
 
 # Plot: model, MODIS and difference
 
@@ -439,14 +439,14 @@ par(mfrow = c(1, 1))
 
 # Crop MODIS to the same extent as the model prediction
 
-modis_ma_nh_crop <- terra::crop(
+modis_ma_nh_crop <- crop(
 modis_ma_nh_rast,
 predicted_phenology_tri
 )
 
 # Resample MODIS to the model resolution
 
-modis_resampled <- terra::resample(
+modis_resampled <- resample(
 modis_ma_nh_crop,
 predicted_phenology_tri,
 method = "bilinear"
@@ -458,8 +458,8 @@ diff_map <- modis_resampled - predicted_phenology_tri
 
 # Simple sanity check statistics (optional)
 
-terra::global(diff_map, fun = "mean", na.rm = TRUE)
-terra::global(diff_map, fun = "sd",   na.rm = TRUE)
+global(diff_map, fun = "mean", na.rm = TRUE)
+global(diff_map, fun = "sd",   na.rm = TRUE)
 
 # Plot: model, MODIS and difference
 
@@ -485,7 +485,7 @@ Consequently, MODIS detects a later and more heterogeneous green-up than the mod
 ### 4. Focus on year 2010
 
 ```{r comparison_point_2010, message=FALSE, warning=FALSE}
-modis_harvard <- MODISTools::mt_subset(
+modis_harvard <- mt_subset(
   product   = "MCD12Q2",
   band      = "Greenup.Num_Modes_01",
   lat       = harvard_lat,
@@ -500,7 +500,7 @@ modis_harvard <- MODISTools::mt_subset(
 )
 
 modis_harvard_ts <- modis_harvard |>
-  dplyr::mutate(
+  mutate(
     value = ifelse(value > 32656, NA, value),            
     date  = as.Date("1970-01-01") + value,               
     year  = as.numeric(format(date, "%Y")),
@@ -510,7 +510,7 @@ modis_harvard_ts <- modis_harvard |>
   dplyr::summarise(
     greenup_doy = mean(doy, na.rm = TRUE)
   ) |>
-  dplyr::filter(!is.na(greenup_doy))
+  filter(!is.na(greenup_doy))
 
 modis_harvard_ts
 
@@ -519,8 +519,8 @@ comparison_point <- validation |>
 
 
 comparison_point_long <- comparison_point |>
-  dplyr::select(year, doy, prediction, greenup_doy) |>
-  tidyr::pivot_longer(
+  select(year, doy, prediction, greenup_doy) |>
+  pivot_longer(
     cols      = c(doy, prediction, greenup_doy),
     names_to  = "source",
     values_to = "DOY"
@@ -550,10 +550,10 @@ ggplot(comparison_point_long, aes(year, DOY, colour = source)) +
 
 anomalies_2010 <- comparison_point_long |>
   dplyr::group_by(source) |>
-  dplyr::mutate(
+  mutate(
     DOY_anom = DOY - mean(DOY, na.rm = TRUE)
   ) |>
-  dplyr::filter(year == 2010)
+  filter(year == 2010)
 
 anomalies_2010
 

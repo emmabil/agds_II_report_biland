@@ -11,7 +11,7 @@ rm(list = ls())
 
 ```{r library, message=FALSE, warning=FALSE}
 #Load libraries
-library(dplyr);library(ggplot2);library(recipes);library(caret);library(ranger);library(rnaturalearth);library(gridExtra);library(purrr);library(readr)
+library(dplyr);library(ggplot2);library(recipes);library(caret);library(ranger);library(gridExtra);library(readr);library(purrr);library(rnaturalearth)
 ```
 <br>
 ### **Introduction**
@@ -19,7 +19,7 @@ This exercise follows the Spatial Upscaling workflow from the GECO course materi
 
 ```{r data, message=FALSE, warning=FALSE}
 # Load Data
-df <- readr::read_csv("https://raw.githubusercontent.com/geco-bern/leafnp_data/main/data/leafnp_tian_et_al.csv")
+df <- read_csv("https://raw.githubusercontent.com/geco-bern/leafnp_data/main/data/leafnp_tian_et_al.csv")
 
 common_species <- df |>
   group_by(Species) |>
@@ -29,7 +29,7 @@ common_species <- df |>
   pull(Species)
 
 dfs <- df |>
-  dplyr::select(leafN, lon, lat, elv, mat, map, ndep, mai, Species) |>
+  select(leafN, lon, lat, elv, mat, map, ndep, mai, Species) |>
   filter(Species %in% common_species)
 
 #for reproducibility
@@ -56,22 +56,22 @@ Yes. Instead of defining distance in geographic space, distance can be computed 
 
 # - elv, mat, map, ndep, mai, Species as predictors
 
-rf_recipe_random <- recipes::recipe(
+rf_recipe_random <- recipe(
 leafN ~ elv + mat + map + ndep + mai + Species,
 data = dfs
 ) |>
-recipes::step_center(recipes::all_numeric(), -recipes::all_outcomes()) |>
-recipes::step_scale(recipes::all_numeric(), -recipes::all_outcomes()) |>
-recipes::step_dummy(recipes::all_nominal(), one_hot = TRUE) |>
-recipes::step_zv(recipes::all_predictors())
+step_center(all_numeric(), -all_outcomes()) |>
+step_scale(all_numeric(), -all_outcomes()) |>
+step_dummy(all_nominal(), one_hot = TRUE) |>
+step_zv(all_predictors())
 
 # Random forest with 5-fold random cross-validation
 
-rf_random <- caret::train(
+rf_random <- train(
 rf_recipe_random,
 data   = dfs |> drop_na(),
 method = "ranger",
-trControl = caret::trainControl(
+trControl = trainControl(
 method = "cv",
 number = 5,
 savePredictions = "final"
@@ -118,7 +118,7 @@ kmeans(dfs[, c("lon", "lat")], centers = 5)$cluster
 
 # Coastline for background map
 
-coast <- rnaturalearth::ne_coastline(scale = 110, returnclass = "sf")
+coast <- ne_coastline(scale = 110, returnclass = "sf")
 
 geo_colors <- c("red3", "darkgoldenrod1", "#228B22", "steelblue2", "#8B008B")
 
@@ -175,12 +175,12 @@ grid.arrange(plot_geo_box, plot_geo_hist, ncol = 2)
 create_cluster_folds <- function(cluster_factor) {
 levels_vec <- levels(cluster_factor)
 
-folds_train <- purrr::map(
+folds_train <- map(
 seq_along(levels_vec),
 ~ which(cluster_factor != levels_vec[.x])
 )
 
-folds_test <- purrr::map(
+folds_test <- map(
 seq_along(levels_vec),
 ~ which(cluster_factor == levels_vec[.x])
 )
@@ -202,7 +202,7 @@ x_val   <- df[idx_val, predictor_mask, drop = FALSE]
 y_train <- df$leafN[idx_train]
 y_val   <- df$leafN[idx_val]
 
-rf_model <- ranger::ranger(
+rf_model <- (
 x = x_train,
 y = y_train,
 num.trees = 2000,
@@ -223,7 +223,7 @@ tibble(rsq = rsq, rmse = rmse)
 
 geo_folds <- create_cluster_folds(dfs$geo_cluster)
 
-cv_results_geo <- purrr::map2_dfr(
+cv_results_geo <- map2_dfr(
 geo_folds$train,
 geo_folds$test,
 ~ fit_rf_by_fold(dfs, .x, .y)
@@ -301,7 +301,7 @@ grid.arrange(plot_env_box, plot_env_hist, ncol = 2)
 ```{r env_cvs3, echo=FALSE, message=FALSE, warning=FALSE, fig.width=11, fig.height=4, fig.align='center'}
 env_folds <- create_cluster_folds(dfs$env_cluster)
 
-cv_results_env <- purrr::map2_dfr(
+cv_results_env <- map2_dfr(
 env_folds$train,
 env_folds$test,
 ~ fit_rf_by_fold(dfs, .x, .y)
