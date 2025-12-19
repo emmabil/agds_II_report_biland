@@ -15,7 +15,7 @@ rm(list=ls())
 library(phenocamr);library(terra);library(dplyr);library(here);library(ggplot2);library(GenSA);library(MODISTools);library(geosphere);library(readr);library(tidyr)
 ```
 <br>
-### **Introduction**
+## Introduction
 Plant phenology is tightly controlled by temperature, radiation and winter dormancy processes. Under current climate warming, the timing of leaf emergence, flowering and senescence is shifting across many ecosystems, with consequences for carbon uptake, species interactions and ecosystem functioning (Morisette et al., 2009; Richardson et al., 2013). Phenological indicators are therefore widely used to assess ecological responses to climate variability and change.
 
 This exercise follows Chapter 6 of ["Handful of Pixels" chapter 6](https://geco-bern.github.io/handfull_of_pixels/phenology_modelling.html) and focuses on modelling spring leaf-out at the Harvard Forest PhenoCam site using temperature-based growing degree days (GDD). Temperature and phenology observations were downloaded using the [{phenocamr}](https://bluegreen-labs.github.io/phenocamr/) [R package](https://bluegreen-labs.github.io/phenocamr/), and a baseline GDD model was calibrated against PhenoCam-derived transition dates. We then explored how model structure could be improved and implemented one alternative formulation. Finally, we compared our model predictions with the MODIS MCD12Q2 phenology product to assess consistency between ground-based and satellite-derived phenology at regional scale.
@@ -99,7 +99,7 @@ harvard_phenology <- harvard_phenology |>
 ```
 
 ``` {r algo,  message=FALSE, warning=FALSE}
-source("../functions/phenology_algo.R")
+source(here("functions","phenology_algo.R")
 ```
 
 ##### **Baseline GDD model**
@@ -197,7 +197,7 @@ The regression between observed DOY and model predictions yields:
 
 The model tends to predict early years too late and late years too early. This behaviour is consistent with the limitations of linear GDD models, which lack sensitivity to winter conditions and assume uniform temperature effectiveness throughout spring.
 
-### **Exercise**
+## Exercise
 ### 1. Model optimization
 #### Model improvements
 
@@ -361,7 +361,7 @@ par(mfrow = c(1, 1))
 
 ```
 
-#### 3.2. MODIS MCD12Q2 et comparaison spatiale
+#### 3.2. MODIS MCD12Q2 and spatial comparison
 ```{r MODIS_time_series_at_Harvard,  message=FALSE, warning=FALSE}
 # --- MODIS MCD12Q2 phenology over MA–NH region (2012) ---
 
