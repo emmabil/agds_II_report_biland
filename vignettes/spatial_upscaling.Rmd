@@ -11,11 +11,11 @@ rm(list = ls())
 
 ```{r library, message=FALSE, warning=FALSE}
 #Load libraries
-library(dplyr);library(ggplot2);library(recipes);library(caret);library(ranger);library(gridExtra);library(readr);library(purrr);library(rnaturalearth)
+library(dplyr);library(ggplot2);library(recipes);library(caret);library(ranger);library(gridExtra);library(readr);library(purrr);library(rnaturalearth);library(tidyr)
 ```
-<br>
-### **Introduction**
-This exercise follows the Spatial Upscaling workflow from the GECO course material and focuses on assessing model performance under different validation strategies when observations are spatially clustered. We use a global dataset of leaf nitrogen concentration (leafN) distributed via the `leafnp_data` repository (Stocker & Tian, 2024). The data include site coordinates and environmental covariates, enabling both random and spatially structured cross-validation.
+
+### Introduction
+This exercise follows the Spatial Upscaling workflow from the GECO course material and focuses on assessing model performance under different validation strategies when observations are spatially clustered. We use a global dataset of leaf nitrogen concentration (leafN) distributed via the `leafnp_data` repository (Stocker & Tian, 2024). The data include site coordinates and environmental covariates, enabling both random and spatially structured cross-validation. We specifically compare random, spatial and encironmental cross-validation.
 
 ```{r data, message=FALSE, warning=FALSE}
 # Load Data
@@ -46,14 +46,12 @@ Spatial cross-validation groups samples into geographically separated clusters a
 
 ### 1.2. Alternative distance measures for spatial upscaling
 Yes. Instead of defining distance in geographic space, distance can be computed in environmental space, using variables such as mean annual temperature, precipitation, nitrogen deposition, or radiation. Clustering points based on environmental similarity groups sites that share comparable ecological conditions, which is often more relevant for upscaling than geographic proximity. This approach reflects the structure of the predictor space rather than the spatial location.
-<br>
+
 
 ## 2. Random cross-validation
 ```{r random_cv, warning=FALSE, message=FALSE}
 # Model recipe:
-
 # - leafN as response
-
 # - elv, mat, map, ndep, mai, Species as predictors
 
 rf_recipe_random <- recipe(
@@ -202,7 +200,7 @@ x_val   <- df[idx_val, predictor_mask, drop = FALSE]
 y_train <- df$leafN[idx_train]
 y_val   <- df$leafN[idx_val]
 
-rf_model <- (
+rf_model <- ranger(
 x = x_train,
 y = y_train,
 num.trees = 2000,
@@ -234,7 +232,7 @@ cv_results_geo
 ```
 
 ### 3.5. Compare the results of the spatial cross-validation to the results of the random cross-validation and discuss reasons for why you observe a difference in the cross-validation metrics.
-Spatial cross-validation performs significantly worse than random cross-validation, with higher RMSE and lower , and there are sizeable differences between geographic folds. Folds with fewer training points tend to have the weakest performance. These results illustrate how random CV overestimates predictive skill when data are spatially clustered, while spatial CV provides more conservative and more realistic estimates for spatial upscaling.
+Spatial cross-validation performs significantly worse than random cross-validation, with higher RMSE and lower R², and there are sizeable differences between geographic folds. Folds with fewer training points tend to have the weakest performance. These results illustrate how random CV overestimates predictive skill when data are spatially clustered, while spatial CV provides more conservative and more realistic estimates for spatial upscaling.
 
 <br>
 

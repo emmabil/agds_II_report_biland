@@ -14,7 +14,7 @@ rm(list=ls())
 # Libraries
 library(phenocamr);library(terra);library(dplyr);library(here);library(ggplot2);library(GenSA);library(MODISTools);library(geosphere);library(readr);library(tidyr)
 ```
-<br>
+
 ## Introduction
 Plant phenology is tightly controlled by temperature, radiation and winter dormancy processes. Under current climate warming, the timing of leaf emergence, flowering and senescence is shifting across many ecosystems, with consequences for carbon uptake, species interactions and ecosystem functioning (Morisette et al., 2009; Richardson et al., 2013). Phenological indicators are therefore widely used to assess ecological responses to climate variability and change.
 
@@ -99,7 +99,7 @@ harvard_phenology <- harvard_phenology |>
 ```
 
 ``` {r algo,  message=FALSE, warning=FALSE}
-source(here("functions","phenology_algo.R")
+source(here("functions","phenology_algo.R"))
 ```
 
 ##### **Baseline GDD model**
